@@ -28,6 +28,11 @@ test('food prompt carries the athlete context when given', () => {
   assert.equal(buildFoodPrompt('rice', 'lives in Portugal'), 'Athlete: lives in Portugal\nMeal: rice');
 });
 
+test('review prompt tells the model which planned days are still ahead', () => {
+  assert.match(buildReviewPrompt(week, program, settings, null, '2026-10-07'), /Today is 2026-10-07\. The week is not over/);
+  assert.doesNotMatch(buildReviewPrompt(week, program, settings, null, '2026-10-11'), /not over/);
+});
+
 test('food prompt wraps the text', () => {
   assert.equal(buildFoodPrompt('  2 eggs '), 'Meal: 2 eggs');
 });

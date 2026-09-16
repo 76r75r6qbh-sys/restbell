@@ -19,6 +19,7 @@
   const S = {
     tab: 'today',
     today: null,
+    stats: null,
     settings: null,
     health: null,
     session: null,
@@ -186,7 +187,8 @@
 
   // ---------- data loading ----------
   async function loadToday() {
-    S.today = await api('GET', `/api/today?date=${localToday()}`);
+    const d = localToday();
+    [S.today, S.stats] = await Promise.all([api('GET', `/api/today?date=${d}`), api('GET', `/api/stats?date=${d}`).catch(() => null)]);
     S.session = S.today.openSession;
     if (S.session) keepAwake(true);
   }
@@ -219,9 +221,41 @@
       view.append(el('div', { class: 'banner' }, `Holiday until ${fmtDate(t.holiday.to)}: lifts are swapped for a bodyweight session. Runs stay.`));
     }
     if (S.doneSummary) view.append(renderDoneCard());
+    if (S.stats) view.append(renderDashboard(S.stats, !!S.session));
     if (S.session) return view.append(renderSession(t));
     if (!t.day) return view.append(renderRestDay(t));
     view.append(renderPlannedCard(t));
+  }
+
+  function renderDashboard(st, compact) {
+    const tile = (k, v, sub, extra = '') => el('div', { class: `tile${extra}` }, el('div', { class: 'k' }, k), v, sub ? el('div', { class: 'small muted' }, sub) : null);
+    const pct = st.week.planned ? Math.min(1, st.week.done / st.week.planned) : 0;
+    const C = 2 * Math.PI * 23;
+    const ring = el('div', { class: 'tile ring' },
+      el('div', { html: `<svg width="56" height="56" viewBox="0 0 56 56" aria-hidden="true"><circle cx="28" cy="28" r="23" fill="none" stroke="var(--line)" stroke-width="7"/><circle cx="28" cy="28" r="23" fill="none" stroke="var(--accent)" stroke-width="7" stroke-linecap="round" stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${(C * (1 - pct)).toFixed(1)}" transform="rotate(-90 28 28)"/><text x="28" y="32" text-anchor="middle" font-size="14" font-weight="800" fill="currentColor">${st.week.done}/${st.week.planned}</text></svg>` }),
+      el('div', {}, el('div', { class: 'k' }, 'Sessions'), el('div', { class: 'small muted' }, st.week.holiday ? 'Holiday week: anything counts' : st.week.remaining === 0 ? 'Week complete' : `${st.week.remaining} to go this week`)),
+    );
+    const grid = el('div', { class: 'dash' }, ring,
+      tile('Volume lifted', el('div', { class: 'v num' }, `${st.volume.kg.toLocaleString('en-GB')} kg`), st.volume.changePct == null ? (st.volume.kg ? 'this week' : 'no lifts yet this week') : el('span', {}, el('b', { class: st.volume.changePct >= 0 ? 'good' : 'muted' }, `${st.volume.changePct >= 0 ? '+' : ''}${st.volume.changePct}%`), ' vs last week')),
+    );
+    if (!compact) {
+      grid.append(
+        tile('Streak', el('div', { class: 'v num' }, `${st.streak} wk`), st.streak ? 'every planned session done' : 'complete a week to start one'),
+        tile('Run this month', el('div', { class: 'v num' }, `${st.runs.km} km`), st.runs.count ? `${st.runs.count} run${st.runs.count > 1 ? 's' : ''} · avg ${st.runs.avgKm} km` : 'no runs yet'),
+        tile('Bodyweight', el('div', { class: 'v num' }, st.bodyweight ? `${st.bodyweight.kg.toFixed(1)} kg` : '—'), st.bodyweight ? (st.bodyweight.delta != null ? el('span', {}, el('b', { class: 'good' }, `${st.bodyweight.delta > 0 ? '+' : ''}${st.bodyweight.delta}`), ` over ${st.bodyweight.over} weigh-ins`) : `weighed ${fmtDate(st.bodyweight.date)}`) : 'no weigh-in yet'),
+        el('div', { class: 'tile' }, el('div', { class: 'k' }, st.bests.fresh ? 'New bests · 7 days' : 'Best sets'),
+          st.bests.items.length ? st.bests.items.map((b) => el('div', { class: 'pr' }, el('span', {}, b.name), el('b', { class: 'num' }, b.weight > 0 ? `${b.weight} kg × ${b.reps}` : `${b.reps} reps`))) : el('div', { class: 'small muted' }, 'log a session to set one')),
+      );
+      const max = Math.max(1, ...st.weeks.map((w) => Math.max(w.done, w.planned)));
+      grid.append(el('div', { class: 'tile wide' }, el('div', { class: 'k' }, 'Sessions per week'),
+        el('div', { class: 'bars' }, st.weeks.map((w, i) => el('div', { class: `b${i === st.weeks.length - 1 ? ' now' : ''}${w.done === 0 ? ' zero' : ''}${w.holiday ? ' hol' : ''}`, style: `height:${Math.round((w.done / max) * 100)}%`, title: `${fmtDate(w.weekStart)}: ${w.done} of ${w.planned}${w.holiday ? ' (holiday)' : ''}` }))),
+        el('div', { class: 'bars-x' }, st.weeks.map((w) => el('span', {}, w.weekStart.slice(8, 10).replace(/^0/, '') + '/' + w.weekStart.slice(5, 7).replace(/^0/, '')))),
+      ));
+    }
+    return el('div', { class: 'card' },
+      el('div', { class: 'card-head' }, el('div', { class: 'eyebrow' }, compact ? 'This week' : 'This week'), st.programWeek ? el('span', { class: 'pill accent' }, `Week ${st.programWeek} of the program`) : null),
+      grid,
+    );
   }
 
   function renderPlannedCard(t) {

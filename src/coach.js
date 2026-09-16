@@ -55,11 +55,14 @@ function fmtSession(s) {
   return [head, ...lines].join('\n');
 }
 
-export function buildReviewPrompt(week, program, settings, previousNote = null) {
+export function buildReviewPrompt(week, program, settings, previousNote = null, today = null) {
   const targets = settings.targets ?? {};
   const lines = [];
   if (settings.athlete) lines.push(`Athlete: ${settings.athlete.trim()}`);
   lines.push(`Week ${week.fromDate} to ${week.toDate}.`);
+  if (today) {
+    lines.push(`Today is ${today}.${today < week.toDate ? ' The week is not over: sessions planned after today have not happened yet and must not be counted as skipped.' : ''}`);
+  }
   lines.push(`Program: ${program.name}. Planned: ${program.days.map((d) => `${d.key}=${d.title}`).join('; ')}.`);
   lines.push(`Targets: ${targets.kcal ?? '?'} kcal, ${targets.proteinG ?? '?'} g protein per day.`);
   if (settings.holiday) lines.push(`Holiday: ${settings.holiday.from} to ${settings.holiday.to}.`);
@@ -113,7 +116,7 @@ export function makeCoach({ client }) {
         FoodEstimate,
       );
     },
-    weeklyReview(week, program, settings, previousNote = null) {
+    weeklyReview(week, program, settings, previousNote = null, today = null) {
       if (!client) return unavailable();
       return parseOrThrow(
         client,
@@ -122,7 +125,7 @@ export function makeCoach({ client }) {
           max_tokens: 4000,
           system: REVIEW_SYSTEM,
           output_config: { effort: 'high' },
-          messages: [{ role: 'user', content: buildReviewPrompt(week, program, settings, previousNote) }],
+          messages: [{ role: 'user', content: buildReviewPrompt(week, program, settings, previousNote, today) }],
         },
         Review,
       );

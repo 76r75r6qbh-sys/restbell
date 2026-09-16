@@ -3,6 +3,7 @@ import { dayByKey, targetsFor, applyProgression } from './program.js';
 import { reviewToText, CoachError } from './coach.js';
 import { analyzeSamples, intensityFromAvg } from './hr.js';
 import { sanitizeProposals, describeProposal, applyProposal } from './proposals.js';
+import { computeStats } from './stats.js';
 
 export const DEFAULT_SETTINGS = {
   targets: { kcal: 2600, proteinG: 140 },
@@ -134,7 +135,7 @@ export async function runWeeklyReview(ctx, weekStart) {
   const { repo, coach } = ctx;
   const week = repo.weekData(weekStart, addDays(weekStart, 6));
   const previous = repo.coachNotes(1)[0];
-  const review = await coach.weeklyReview(week, ctx.program(), repo.allSettings(), previous?.text ?? null);
+  const review = await coach.weeklyReview(week, ctx.program(), repo.allSettings(), previous?.text ?? null, todayStr());
   const note = repo.addCoachNote({ weekStart, text: reviewToText(review), json: review });
   const program = ctx.program();
   const proposals = sanitizeProposals(review.proposals, program).map((proposal) => ({ proposal, text: describeProposal(proposal, program) }));
@@ -177,6 +178,11 @@ export function createApi(ctx) {
         lastSession: last ? { date: last.date, feel: last.feel, notes: last.notes, sets: last.sets } : null,
         days: program.days.map((d) => ({ key: d.key, weekday: d.weekday, title: d.title, type: d.type, time: d.time })),
       };
+    }],
+
+    ['GET', /^\/api\/stats$/, (req, res, m, body, url) => {
+      const date = dateOf(url.searchParams.get('date'));
+      return computeStats({ today: date, program: ctx.program(), settings: repo.allSettings(), sessions: repo.history(400), checkins: repo.checkins(52) });
     }],
 
     ['POST', /^\/api\/sessions$/, (req, res, m, body) => {

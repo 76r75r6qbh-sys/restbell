@@ -63,7 +63,7 @@ export function makeCliCoach({ bin = 'claude', prefixArgs = [], models = {}, env
     enabled: true,
     backend: 'cli',
     estimateFood: (text, athlete = '') => ask(FoodEstimate, FOOD_SYSTEM, buildFoodPrompt(text, athlete), models.food ?? 'sonnet'),
-    weeklyReview: (week, program, settings, previousNote = null) =>
-      ask(Review, REVIEW_SYSTEM, buildReviewPrompt(week, program, settings, previousNote), models.review ?? 'opus'),
+    weeklyReview: (week, program, settings, previousNote = null, today = null) =>
+      ask(Review, REVIEW_SYSTEM, buildReviewPrompt(week, program, settings, previousNote, today), models.review ?? 'opus'),
   };
 }

@@ -252,3 +252,12 @@ test('review proposals are listed, applied and dismissed', async () => {
   assert.equal((await api('GET', '/api/coach')).json.proposals.filter((p) => p.weekStart === '2026-11-02').length, 2);
   await api('PUT', '/api/settings', { targets: { kcal: 2600, proteinG: 140 } });
 });
+
+test('stats endpoint reflects logged data', async () => {
+  const r = await api('GET', '/api/stats?date=2026-10-06');
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.equal(r.json.week.start, '2026-10-05');
+  assert.ok(r.json.week.done >= 1);
+  assert.equal(r.json.weeks.length, 8);
+  assert.ok(r.json.bests.items.some((b) => b.exerciseId === 'squat'));
+});
