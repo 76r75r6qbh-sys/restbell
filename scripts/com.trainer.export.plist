@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!-- Weekly export on macOS. Copy to ~/Library/LaunchAgents/, fix the paths, then:
+     launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.trainer.export.plist -->
+<dict>
+  <key>Label</key><string>com.trainer.export</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/path/to/personal-trainer/scripts/export-to-folder.sh</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>TRAINER_URL</key><string>http://trainer-host:3000</string>
+    <key>DEST</key><string>/path/to/synced/Training</string>
+  </dict>
+  <key>StartCalendarInterval</key>
+  <dict><key>Weekday</key><integer>0</integer><key>Hour</key><integer>20</integer><key>Minute</key><integer>0</integer></dict>
+  <key>StandardOutPath</key><string>/tmp/trainer-export.log</string>
+  <key>StandardErrorPath</key><string>/tmp/trainer-export.log</string>
+</dict>
+</plist>

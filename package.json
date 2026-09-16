@@ -1,0 +1,18 @@
+{
+  "name": "personal-trainer",
+  "version": "0.1.0",
+  "description": "Self-hosted strength, running, food and coaching tracker",
+  "type": "module",
+  "private": true,
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test",
+    "review": "node src/cli.js review",
+    "seed": "node src/cli.js seed"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.90.0",
+    "zod": "^4.0.0"
+  }
+}

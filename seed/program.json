@@ -1,0 +1,320 @@
+{
+  "name": "Return to lifting — full body ×2 + run",
+  "version": 1,
+  "notes": "Weeks 1–2: stop every set with 2 reps in reserve. From week 3 the app raises the weight when every set hits the top of its rep range.",
+  "days": [
+    {
+      "key": "A",
+      "weekday": 1,
+      "time": "07:30",
+      "type": "lift",
+      "title": "Lift A · full body",
+      "exercises": [
+        {
+          "id": "squat",
+          "name": "Back squat",
+          "sets": 3,
+          "repMin": 5,
+          "repMax": 5,
+          "weight": null,
+          "increment": 2.5,
+          "restSec": 150,
+          "cue": "Sit between your heels, chest up, drive the floor away."
+        },
+        {
+          "id": "bench",
+          "name": "Bench press",
+          "sets": 3,
+          "repMin": 6,
+          "repMax": 8,
+          "weight": null,
+          "increment": 2.5,
+          "restSec": 120,
+          "cue": "Feet planted, shoulder blades pinched, bar to lower chest."
+        },
+        {
+          "id": "cable_row",
+          "name": "Seated cable row",
+          "sets": 3,
+          "repMin": 8,
+          "repMax": 10,
+          "weight": null,
+          "increment": 5,
+          "restSec": 90,
+          "cue": "Pull elbows to hips, squeeze the shoulder blades, no leaning back."
+        },
+        {
+          "id": "rdl",
+          "name": "Romanian deadlift",
+          "sets": 3,
+          "repMin": 8,
+          "repMax": 10,
+          "weight": null,
+          "increment": 2.5,
+          "restSec": 120,
+          "cue": "Hips back, bar slides down the thighs, feel the hamstrings, soft knees."
+        },
+        {
+          "id": "knee_raise",
+          "name": "Hanging knee raise",
+          "sets": 3,
+          "repMin": 10,
+          "repMax": 15,
+          "weight": 0,
+          "increment": 0,
+          "restSec": 60,
+          "cue": "Curl the pelvis up, no swinging."
+        }
+      ]
+    },
+    {
+      "key": "H",
+      "weekday": 3,
+      "time": null,
+      "type": "home",
+      "title": "Home circuit (optional)",
+      "exercises": [
+        {
+          "id": "goblet_squat",
+          "name": "Goblet squat",
+          "sets": 3,
+          "repMin": 12,
+          "repMax": 15,
+          "weight": 10,
+          "increment": 0,
+          "restSec": 60,
+          "cue": "Dumbbell at the chest, sit between the heels."
+        },
+        {
+          "id": "pushup",
+          "name": "Push-up",
+          "sets": 3,
+          "repMin": 8,
+          "repMax": 12,
+          "weight": 0,
+          "increment": 0,
+          "restSec": 60,
+          "cue": "Body in one line, elbows at 45°."
+        },
+        {
+          "id": "db_row",
+          "name": "Single-arm row (each side)",
+          "sets": 3,
+          "repMin": 10,
+          "repMax": 12,
+          "weight": 10,
+          "increment": 0,
+          "restSec": 60,
+          "cue": "Hand on a chair, elbow to hip, no twisting."
+        },
+        {
+          "id": "step_up",
+          "name": "Step-up onto a chair (each leg)",
+          "sets": 3,
+          "repMin": 8,
+          "repMax": 10,
+          "weight": 10,
+          "increment": 0,
+          "restSec": 60,
+          "cue": "Hold the dumbbell at the chest, drive through the top foot, lower slowly."
+        },
+        {
+          "id": "sa_ohp",
+          "name": "Single-arm overhead press (each side)",
+          "sets": 3,
+          "repMin": 10,
+          "repMax": 12,
+          "weight": 7.5,
+          "increment": 0,
+          "restSec": 60,
+          "cue": "Ribs down, don't lean back."
+        },
+        {
+          "id": "db_rdl",
+          "name": "Dumbbell Romanian deadlift",
+          "sets": 3,
+          "repMin": 12,
+          "repMax": 15,
+          "weight": 17.5,
+          "increment": 0,
+          "restSec": 60,
+          "cue": "Both dumbbells, hips back, hamstrings loaded."
+        },
+        {
+          "id": "plank",
+          "name": "Plank",
+          "sets": 3,
+          "repMin": 30,
+          "repMax": 45,
+          "weight": 0,
+          "increment": 0,
+          "restSec": 45,
+          "unit": "sec",
+          "cue": "Squeeze glutes, breathe."
+        }
+      ]
+    },
+    {
+      "key": "B",
+      "weekday": 4,
+      "time": "07:30",
+      "type": "lift",
+      "title": "Lift B · full body",
+      "exercises": [
+        {
+          "id": "deadlift",
+          "name": "Deadlift",
+          "sets": 3,
+          "repMin": 5,
+          "repMax": 5,
+          "weight": null,
+          "increment": 5,
+          "restSec": 180,
+          "cue": "Bar over mid-foot, brace, push the floor away, lock out tall."
+        },
+        {
+          "id": "ohp",
+          "name": "Overhead press",
+          "sets": 3,
+          "repMin": 6,
+          "repMax": 8,
+          "weight": null,
+          "increment": 2.5,
+          "restSec": 120,
+          "cue": "Squeeze glutes, bar straight up, head through at the top."
+        },
+        {
+          "id": "lat_pulldown",
+          "name": "Lat pulldown",
+          "sets": 3,
+          "repMin": 8,
+          "repMax": 10,
+          "weight": null,
+          "increment": 5,
+          "restSec": 90,
+          "cue": "Elbows down to the ribs, chest up."
+        },
+        {
+          "id": "leg_press",
+          "name": "Leg press",
+          "sets": 3,
+          "repMin": 10,
+          "repMax": 12,
+          "weight": null,
+          "increment": 10,
+          "restSec": 90,
+          "cue": "Full range, knees track over toes, don't lock out hard."
+        },
+        {
+          "id": "cable_crunch",
+          "name": "Cable crunch",
+          "sets": 3,
+          "repMin": 10,
+          "repMax": 15,
+          "weight": null,
+          "increment": 5,
+          "restSec": 60,
+          "cue": "Round the spine, elbows to knees."
+        }
+      ]
+    },
+    {
+      "key": "R",
+      "weekday": 6,
+      "time": "09:00",
+      "type": "run",
+      "title": "Easy run · 5–7 km",
+      "targetDistanceKm": [
+        5,
+        7
+      ],
+      "exercises": [],
+      "cue": "Conversational pace. Distance is yours; log km, minutes and how it felt."
+    }
+  ],
+  "travel": {
+    "key": "T",
+    "type": "travel",
+    "title": "Travel session · bodyweight",
+    "exercises": [
+      {
+        "id": "pushup",
+        "name": "Push-up",
+        "sets": 3,
+        "repMin": 10,
+        "repMax": 15,
+        "weight": 0,
+        "increment": 0,
+        "restSec": 60,
+        "cue": "Body in one line, elbows at 45°."
+      },
+      {
+        "id": "bw_squat",
+        "name": "Bodyweight squat",
+        "sets": 3,
+        "repMin": 15,
+        "repMax": 20,
+        "weight": 0,
+        "increment": 0,
+        "restSec": 45,
+        "cue": "Slow down, pause at the bottom."
+      },
+      {
+        "id": "bw_step_up",
+        "name": "Step-up (each leg)",
+        "sets": 3,
+        "repMin": 12,
+        "repMax": 15,
+        "weight": 0,
+        "increment": 0,
+        "restSec": 45,
+        "cue": "Use a stair or sturdy chair, control the way down."
+      },
+      {
+        "id": "pike_pushup",
+        "name": "Pike push-up",
+        "sets": 3,
+        "repMin": 8,
+        "repMax": 12,
+        "weight": 0,
+        "increment": 0,
+        "restSec": 60,
+        "cue": "Hips high, head towards the floor between the hands."
+      },
+      {
+        "id": "glute_bridge",
+        "name": "Glute bridge",
+        "sets": 3,
+        "repMin": 15,
+        "repMax": 20,
+        "weight": 0,
+        "increment": 0,
+        "restSec": 45,
+        "cue": "Squeeze at the top for a second."
+      },
+      {
+        "id": "plank",
+        "name": "Plank",
+        "sets": 3,
+        "repMin": 30,
+        "repMax": 45,
+        "weight": 0,
+        "increment": 0,
+        "restSec": 45,
+        "unit": "sec",
+        "cue": "Squeeze glutes, breathe."
+      },
+      {
+        "id": "superman",
+        "name": "Superman hold",
+        "sets": 3,
+        "repMin": 12,
+        "repMax": 15,
+        "weight": 0,
+        "increment": 0,
+        "restSec": 45,
+        "cue": "Lift chest and thighs, hold one second."
+      }
+    ]
+  }
+}

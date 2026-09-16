@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Trainer</title>
+<meta name="theme-color" content="#0E7C86">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Trainer">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header class="top">
+  <div class="top-left">
+    <div class="brand">Trainer</div>
+    <div class="date" id="top-date"></div>
+  </div>
+  <button class="icon-btn" id="btn-settings" aria-label="Settings">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+  </button>
+</header>
+
+<main id="view" class="view"></main>
+
+<div id="timer" class="timer" hidden>
+  <div class="timer-main">
+    <div class="timer-clock" id="timer-clock">1:30</div>
+    <div class="timer-next" id="timer-next">Rest</div>
+  </div>
+  <div class="timer-actions">
+    <button class="btn ghost" id="timer-plus">+30s</button>
+    <button class="btn" id="timer-skip">Skip</button>
+  </div>
+</div>
+
+<nav class="tabs" id="tabs">
+  <button data-tab="today" class="tab active">Today</button>
+  <button data-tab="history" class="tab">History</button>
+  <button data-tab="checkin" class="tab">Check-in</button>
+  <button data-tab="food" class="tab">Food</button>
+  <button data-tab="coach" class="tab">Coach</button>
+</nav>
+
+<div id="sheet-backdrop" class="backdrop" hidden></div>
+<div id="sheet" class="sheet" hidden></div>
+
+<div id="login" class="login" hidden>
+  <form id="login-form" class="card login-card">
+    <h2>Trainer</h2>
+    <label class="field"><span>Password</span><input type="password" id="login-password" autocomplete="current-password" required></label>
+    <div class="error" id="login-error" hidden>Wrong password.</div>
+    <button class="btn primary wide" type="submit">Sign in</button>
+  </form>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+<script src="/app.js"></script>
+</body>
+</html>
