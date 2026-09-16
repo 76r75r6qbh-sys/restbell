@@ -242,6 +242,7 @@ ul { margin: 0; padding-left: 18px; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 
 /* ---------- guided session: fullscreen, always dark ---------- */
+html.guiding, body.guiding { background: #07090C; }
 body.guiding { overflow: hidden; }
 body.guiding .timer { display: none !important; }
 .guide {

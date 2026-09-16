@@ -158,13 +158,7 @@
   };
   $('#timer-plus').addEventListener('click', addRest);
 
-  let wakeLock = null;
-  async function keepAwake(on) {
-    try {
-      if (on && !wakeLock && navigator.wakeLock) wakeLock = await navigator.wakeLock.request('screen');
-      if (!on && wakeLock) { await wakeLock.release(); wakeLock = null; }
-    } catch { /* not granted */ }
-  }
+  const keepAwake = (on) => globalThis.RestbellAwake?.set(on);
 
   // ---------- sheet (bottom modal) ----------
   function openSheet(...content) {
@@ -458,6 +452,9 @@
     const open = !!(day && S.guide?.open);
     root.hidden = !open;
     document.body.classList.toggle('guiding', open);
+    // Safari tints its translucent top bar from the page background and theme colour, not from the overlay.
+    document.documentElement.classList.toggle('guiding', open);
+    $('meta[name="theme-color"]').content = open ? '#07090C' : '#0E7C86';
     if (!open) return root.replaceChildren();
 
     const exs = day.exercises;
@@ -505,7 +502,7 @@
       el('label', { class: 'g-value' }, el('span', {}, label), input),
       el('button', { 'aria-label': `More ${label.toLowerCase()}`, onclick: () => bump(input, d) }, '+'));
     const hint = last
-      ? `Last time: ${last.reps}${ex.unit === 'sec' ? 's' : ''} at ${kg(last.weight)}`
+      ? `Last time: ${last.reps}${ex.unit === 'sec' ? 's' : ''}${last.weight > 0 ? ` at ${kg(last.weight)}` : ', bodyweight'}`
       : ex.weight == null ? 'Find your working weight: start light, stop with 2 reps left.' : null;
 
     return el('div', {},
