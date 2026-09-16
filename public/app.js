@@ -35,7 +35,7 @@
     queue: JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]'),
     timer: null,         // { endsAt, next, total }
     doneSummary: null,
-    guide: null,         // { open, index, setIdx, justDone, dir } while a lift session runs
+    guide: null,         // { open, last } while a lift session runs
   };
 
   // ---------- helpers ----------
@@ -325,7 +325,7 @@
     const total = day.exercises.reduce((n, e) => n + e.sets, 0);
     const card = el('div', { class: 'card' },
       el('div', { class: 'card-head' }, el('div', {}, el('div', { class: 'eyebrow' }, 'In progress'), el('h1', {}, day.title)), el('span', { class: 'pill accent num' }, `${done}/${total} sets`)),
-      S.guide && !S.guide.open ? el('button', { class: 'btn primary wide', onclick: () => { Object.assign(S.guide, { open: true, setIdx: null, dir: 0 }); render(); } }, 'Resume guided view') : null,
+      S.guide && !S.guide.open ? el('button', { class: 'btn primary wide', onclick: () => { S.guide.open = true; render(); } }, 'Resume guided view') : null,
     );
     for (const ex of day.exercises) card.append(renderExercise(ex));
     card.append(
@@ -401,10 +401,9 @@
     const body = { exerciseId: ex.id, exerciseName: ex.name, setIndex: idx, targetReps: ex.repMax, reps, weight };
     const saved = await sendOrQueue('POST', `/api/sessions/${S.session.id}/sets`, body);
     const setRow = saved ?? { ...body, sessionId: S.session.id, queued: true };
-    const wasLogged = !!loggedSet(ex.id, idx);
     S.session.sets = S.session.sets.filter((s) => !(s.exerciseId === ex.id && s.setIndex === idx)).concat(setRow);
     S.editing = null;
-    if (S.guide?.open) return guideAfterLog(ex, wasLogged, S.today.day);
+    if (S.guide?.open) return guideAfterLog(ex, idx, S.today.day);
     startTimer(ex.restSec ?? 90, nextSetDescription(ex, idx, S.today.day));
     render();
   }
@@ -418,44 +417,28 @@
     } catch (e) { toast(e.message); }
   }
 
-  // ----- Guided session (fullscreen, one exercise at a time) -----
+  // ----- Guided session (fullscreen, set by set in rounds) -----
   const G = globalThis.RestbellGuide;
   const RING_R = 118;
   const RING_C = 2 * Math.PI * RING_R;
   const ICON = {
     list: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg>',
-    prev: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>',
-    next: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>',
     check: '<svg width="100%" height="100%" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
   };
   const guideDay = () => (S.session && S.today?.day?.key === S.session.dayKey && S.today.day.exercises?.length ? S.today.day : null);
+  const stepText = (exs, step) => `${exs[step.index].name}, set ${step.setIndex + 1} of ${exs[step.index].sets}`;
 
-  function guideGoTo(index) {
-    const day = guideDay();
-    if (!S.guide || !day || index < 0 || index >= day.exercises.length || index === S.guide.index) return;
-    Object.assign(S.guide, { dir: index > S.guide.index ? 1 : -1, index, setIdx: null, justDone: null });
-    renderGuide();
-  }
-
-  function guideAfterLog(ex, wasLogged, day) {
+  function guideAfterLog(ex, idx, day) {
     const exs = day.exercises;
-    const sets = S.session.sets;
-    const i = exs.findIndex((e) => e.id === ex.id);
-    Object.assign(S.guide, { setIdx: null, justDone: null, dir: 0 });
-    if (wasLogged) return render(); // a correction, no rest
-    if (!G.isDone(ex, sets)) {
-      startTimer(ex.restSec ?? 90, `${ex.name}, set ${G.nextOpenSet(ex, sets) + 1} of ${ex.sets}`);
-      return render();
-    }
-    const next = G.nextExercise(exs, sets, i);
-    if (next === -1) {
+    const [next] = G.openSteps(exs, S.session.sets);
+    S.guide.last = `${ex.name} · set ${idx + 1} logged`;
+    if (!next) {
       stopTimer();
       speak('All sets done. Nice work.');
       if (navigator.vibrate) navigator.vibrate([120, 60, 120]);
       return render();
     }
-    Object.assign(S.guide, { index: next, justDone: ex.name, dir: 1 });
-    startTimer(ex.restSec ?? 90, `${exs[next].name}, ${targetText(exs[next])}`);
+    startTimer(ex.restSec ?? 90, stepText(exs, next));
     render();
   }
 
@@ -471,7 +454,7 @@
     const root = $('#guide');
     if (!S.session) S.guide = null;
     const day = guideDay();
-    if (day && !S.guide) S.guide = { open: true, index: Math.max(0, G.firstOpen(day.exercises, S.session.sets)), setIdx: null, justDone: null, dir: 0 };
+    if (day && !S.guide) S.guide = { open: true, last: null };
     const open = !!(day && S.guide?.open);
     root.hidden = !open;
     document.body.classList.toggle('guiding', open);
@@ -479,72 +462,41 @@
 
     const exs = day.exercises;
     const sets = S.session.sets;
-    S.guide.index = Math.min(S.guide.index, exs.length - 1);
-    const i = S.guide.index;
-    const allDone = G.firstOpen(exs, sets) === -1;
+    const steps = G.openSteps(exs, sets);
+    const [step, after] = steps;
+    const totalRounds = G.rounds(exs);
 
     const top = el('div', { class: 'g-top' },
       el('button', { class: 'g-icon', 'aria-label': 'Show all exercises', onclick: () => { S.guide.open = false; render(); window.scrollTo(0, 0); }, html: ICON.list }),
-      el('div', { class: 'g-heading' }, el('div', { class: 'g-eyebrow' }, day.title), el('div', { class: 'g-count num' }, allDone ? 'All exercises done' : `Exercise ${i + 1} of ${exs.length}`)),
+      el('div', { class: 'g-heading' },
+        el('div', { class: 'g-eyebrow' }, day.title),
+        el('div', { class: 'g-count num' }, step ? `Round ${step.setIndex + 1} of ${totalRounds} · Exercise ${step.index + 1} of ${exs.length}` : 'All sets done')),
       el('button', { class: 'g-pill', onclick: () => finishSheet(day) }, 'Finish'),
     );
-    const progress = el('div', { class: 'g-progress', 'aria-hidden': 'true' }, exs.map((e, k) =>
-      el('span', { class: `g-seg${k === i && !allDone ? ' now' : ''}` }, el('i', { style: `width:${Math.round((G.loggedCount(e, sets) / e.sets) * 100)}%` }))));
+    // One segment per round, filled by the share of that round's sets that are logged.
+    const progress = el('div', { class: 'g-progress', 'aria-hidden': 'true' }, Array.from({ length: totalRounds }, (_, r) => {
+      const inRound = exs.filter((e) => r < e.sets);
+      const done = inRound.filter((e) => sets.some((s) => s.exerciseId === e.id && s.setIndex === r)).length;
+      return el('span', { class: `g-seg${step?.setIndex === r ? ' now' : ''}` }, el('i', { style: `width:${Math.round((done / inRound.length) * 100)}%` }));
+    }));
 
     let body;
-    if (S.timer) body = guideRest(exs[i], sets);
-    else if (allDone && S.guide.setIdx == null) body = guideComplete(day, sets);
-    else body = guideExercise(exs, sets, i);
+    if (S.timer && step) body = guideRest(exs, step);
+    else if (!step) body = guideComplete(day, sets);
+    else body = guideStep(exs, step, after);
     body.classList.add('g-body');
-    if (S.guide.dir) body.style.setProperty('--g-from', `${S.guide.dir * 28}px`);
-    S.guide.dir = 0;
     root.replaceChildren(el('div', { class: 'g-wrap' }, top, progress, body));
     if (S.timer) tickTimer();
   }
 
-  function guideExercise(exs, sets, i) {
-    const ex = exs[i];
-    const openIdx = G.nextOpenSet(ex, sets);
-    const idx = S.guide.setIdx ?? openIdx;
-    const dots = el('div', { class: 'g-sets' }, Array.from({ length: ex.sets }, (_, k) => {
-      const logged = loggedSet(ex.id, k);
-      const unit = ex.unit === 'sec' ? 's' : '';
-      return el('button', {
-        class: `g-set num${logged ? ' done' : ''}${k === idx ? ' current' : ''}`,
-        'aria-label': logged ? `Set ${k + 1}: ${logged.reps}${unit}, edit` : `Set ${k + 1}`,
-        onclick: () => { S.guide.setIdx = k === idx ? null : k; renderGuide(); },
-      },
-      logged ? `${logged.reps}${unit}` : `Set ${k + 1}`,
-      el('small', {}, logged ? (logged.weight > 0 ? kg(logged.weight) : 'bw') : ex.unit === 'sec' ? `${ex.repMax}s` : `${ex.repMax} reps`));
-    }));
+  function guideStep(exs, step, after) {
+    const ex = exs[step.index];
+    const idx = step.setIndex;
+    const dots = el('div', { class: 'g-dots', 'aria-label': `${G.loggedCount(ex, S.session.sets)} of ${ex.sets} sets logged` },
+      Array.from({ length: ex.sets }, (_, k) => el('span', { class: `g-dot${loggedSet(ex.id, k) ? ' done' : ''}${k === idx ? ' current' : ''}` })));
 
-    const main = el('div', { class: 'g-main' },
-      el('div', { class: 'g-eyebrow accent' }, idx == null ? 'Complete' : `Set ${idx + 1} of ${ex.sets}`),
-      el('h1', { class: 'g-name' }, ex.name),
-      el('div', { class: 'g-target num' }, targetText(ex)),
-      ex.cue ? el('p', { class: 'g-cue' }, ex.cue) : null,
-      dots,
-    );
-
-    const next = G.nextExercise(exs, sets, i);
-    const nav = el('div', { class: 'g-nav' },
-      el('button', { class: 'g-icon big', 'aria-label': 'Previous exercise', disabled: i === 0, onclick: () => guideGoTo(i - 1), html: ICON.prev }),
-      el('div', { class: 'g-upnext' }, next === -1
-        ? el('span', { class: 'g-upnext-name' }, 'Last exercise')
-        : [el('span', { class: 'g-eyebrow' }, 'Next'), el('span', { class: 'g-upnext-name' }, exs[next].name)]),
-      el('button', { class: 'g-icon big', 'aria-label': 'Next exercise', disabled: i === exs.length - 1, onclick: () => guideGoTo(i + 1), html: ICON.next }),
-    );
-
-    if (idx == null) {
-      return el('div', {}, main,
-        el('div', { class: 'g-controls' },
-          el('div', { class: 'g-done-note' }, el('span', { class: 'g-check-dot', html: ICON.check }), `All ${ex.sets} sets logged. Tap a set to fix it.`),
-          next === -1 ? null : el('button', { class: 'g-cta', onclick: () => guideGoTo(next) }, `Go to ${exs[next].name}`)),
-        nav);
-    }
-
-    const { logged, last, weight, reps } = prefill(ex, idx);
-    const step = ex.increment > 0 ? ex.increment : 2.5;
+    const { last, weight, reps } = prefill(ex, idx);
+    const step1 = ex.increment > 0 ? ex.increment : 2.5;
     const wIn = el('input', { type: 'number', inputmode: 'decimal', step: '0.5', min: '0', value: weight, 'aria-label': 'Weight in kg' });
     const rIn = el('input', { type: 'number', inputmode: 'numeric', step: '1', min: '0', value: reps, 'aria-label': ex.unit === 'sec' ? 'Seconds' : 'Reps' });
     const bump = (input, d) => { input.value = Math.max(0, Math.round((Number(input.value) + d) * 100) / 100); };
@@ -556,21 +508,28 @@
       ? `Last time: ${last.reps}${ex.unit === 'sec' ? 's' : ''} at ${kg(last.weight)}`
       : ex.weight == null ? 'Find your working weight: start light, stop with 2 reps left.' : null;
 
-    return el('div', {}, main,
-      el('div', { class: 'g-controls' },
-        el('div', { class: 'g-steppers' }, stepper('Weight · kg', wIn, step), stepper(ex.unit === 'sec' ? 'Seconds' : 'Reps', rIn, 1)),
-        hint ? el('div', { class: 'g-hint' }, hint) : null,
-        el('button', { class: 'g-cta', onclick: () => logSet(ex, idx, Number(rIn.value), Number(wIn.value)) }, logged ? `Update set ${idx + 1}` : `Log set ${idx + 1}`),
+    return el('div', {},
+      el('div', { class: 'g-main' },
+        el('div', { class: 'g-setline' }, el('span', { class: 'g-eyebrow accent' }, `Set ${idx + 1} of ${ex.sets}`), dots),
+        el('h1', { class: 'g-name' }, ex.name),
+        el('div', { class: 'g-target num' }, targetText(ex)),
+        ex.cue ? el('p', { class: 'g-cue' }, ex.cue) : null,
       ),
-      nav);
+      el('div', { class: 'g-controls' },
+        el('div', { class: 'g-steppers' }, stepper('Weight · kg', wIn, step1), stepper(ex.unit === 'sec' ? 'Seconds' : 'Reps', rIn, 1)),
+        hint ? el('div', { class: 'g-hint' }, hint) : null,
+        el('button', { class: 'g-cta', onclick: () => logSet(ex, idx, Number(rIn.value), Number(wIn.value)) }, `Log set ${idx + 1}`),
+      ),
+      el('div', { class: 'g-upnext' },
+        el('span', { class: 'g-eyebrow' }, after ? 'Next' : 'Then'),
+        el('span', { class: 'g-upnext-name' }, after ? `${exs[after.index].name} · set ${after.setIndex + 1}` : 'Finish the session')),
+    );
   }
 
-  function guideRest(ex, sets) {
-    const setNo = (G.nextOpenSet(ex, sets) ?? 0) + 1;
+  function guideRest(exs, step) {
+    const ex = exs[step.index];
     return el('div', { class: 'g-rest' },
-      S.guide.justDone
-        ? el('div', { class: 'g-badge' }, el('span', { class: 'g-check-dot', html: ICON.check }), `${S.guide.justDone} done`)
-        : el('div', { class: 'g-badge soft num' }, `Set ${G.loggedCount(ex, sets)} of ${ex.sets} logged`),
+      S.guide.last ? el('div', { class: 'g-badge' }, el('span', { class: 'g-check-dot', html: ICON.check }), S.guide.last) : el('div', { class: 'g-eyebrow accent' }, 'Rest'),
       el('div', { class: 'g-ring' },
         el('div', { html: `<svg viewBox="0 0 260 260" aria-hidden="true"><defs><linearGradient id="g-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="var(--g-accent)"/><stop offset="1" stop-color="var(--g-good)"/></linearGradient></defs><circle cx="130" cy="130" r="${RING_R}" class="g-track"/><circle id="g-arc" cx="130" cy="130" r="${RING_R}" class="g-arc" stroke-dasharray="${RING_C.toFixed(1)}" transform="rotate(-90 130 130)"/></svg>` }),
         el('div', { class: 'g-clock-wrap' }, el('div', { id: 'g-clock', class: 'g-clock num', role: 'timer' }, ''), el('div', { class: 'g-eyebrow' }, 'rest')),
@@ -581,7 +540,7 @@
       el('div', { class: 'g-next-card' },
         el('div', { class: 'g-eyebrow' }, 'Up next'),
         el('div', { class: 'g-next-name' }, ex.name),
-        el('div', { class: 'g-next-meta num' }, `Set ${setNo} of ${ex.sets} · ${targetText(ex)}`),
+        el('div', { class: 'g-next-meta num' }, `Set ${step.setIndex + 1} of ${ex.sets} · ${targetText(ex)}`),
         ex.cue ? el('div', { class: 'g-cue' }, ex.cue) : null),
     );
   }
@@ -595,26 +554,6 @@
       el('button', { class: 'g-cta', onclick: () => finishSheet(day) }, 'Finish session'),
       el('button', { class: 'g-pill ghost', onclick: () => { S.guide.open = false; render(); } }, 'Review all sets'),
     );
-  }
-
-  {
-    const root = $('#guide');
-    let touch = null;
-    root.addEventListener('touchstart', (e) => {
-      touch = e.target.closest('input') || e.touches.length > 1 ? null : { x: e.touches[0].clientX, y: e.touches[0].clientY };
-    }, { passive: true });
-    root.addEventListener('touchend', (e) => {
-      if (!touch || !S.guide || S.timer) return;
-      const dx = e.changedTouches[0].clientX - touch.x;
-      const dy = e.changedTouches[0].clientY - touch.y;
-      touch = null;
-      if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) guideGoTo(S.guide.index + (dx < 0 ? 1 : -1));
-    });
-    document.addEventListener('keydown', (e) => {
-      if (!S.guide?.open || root.hidden || S.timer || e.target.closest?.('input, textarea') || !$('#sheet').hidden) return;
-      if (e.key === 'ArrowRight') guideGoTo(S.guide.index + 1);
-      if (e.key === 'ArrowLeft') guideGoTo(S.guide.index - 1);
-    });
   }
 
   const FEELS = [['1', 'Rough'], ['2', 'Meh'], ['3', 'OK'], ['4', 'Good'], ['5', 'Great']];
