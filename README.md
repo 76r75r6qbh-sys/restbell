@@ -1,6 +1,6 @@
-# Trainer
+# Restbell
 
-Self-hosted training companion for one athlete: today's session with targets, set logging with
+Restbell is a self-hosted training companion for one athlete: today's session with targets, set logging with
 rest timers and voice cues, runs, weekly weigh-ins, food tracking with a Claude
 estimator, Apple Watch workout import with heart-rate zones, and a weekly coach
 note. One Node process, one SQLite file, no build step.
