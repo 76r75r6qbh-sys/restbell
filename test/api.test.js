@@ -261,3 +261,16 @@ test('stats endpoint reflects logged data', async () => {
   assert.equal(r.json.weeks.length, 8);
   assert.ok(r.json.bests.items.some((b) => b.exerciseId === 'squat'));
 });
+
+test('settings come with defaults on a fresh database', async () => {
+  const s4 = await startServer({ dataDir: mkdtempSync(join(tmpdir(), 'trainer-data-')), staticDir, cron: false, log: { error() {} } });
+  try {
+    const r = await (await fetch(`http://127.0.0.1:${s4.port}/api/settings`)).json();
+    assert.deepEqual(r.targets, { kcal: 2600, proteinG: 140 });
+    assert.equal(r.voice, true);
+    assert.equal(r.maxHr, 191);
+    assert.equal(s4.ctx.repo.hasSetting('voice'), true, 'defaults are persisted, not only merged');
+  } finally {
+    await s4.close();
+  }
+});

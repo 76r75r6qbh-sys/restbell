@@ -104,6 +104,9 @@ export function makeRepo(db) {
       const r = q('SELECT value FROM settings WHERE key = ?').get(key);
       return r ? JSON.parse(r.value) : fallback;
     },
+    hasSetting(key) {
+      return !!q('SELECT 1 FROM settings WHERE key = ?').get(key);
+    },
     setSetting(key, value) {
       q('INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, JSON.stringify(value));
     },

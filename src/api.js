@@ -16,8 +16,13 @@ export const DEFAULT_SETTINGS = {
 
 export function ensureDefaults(repo) {
   for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) {
-    if (repo.getSetting(k, undefined) === undefined) repo.setSetting(k, v);
+    if (!repo.hasSetting(k)) repo.setSetting(k, v);
   }
+}
+
+/** Stored settings with defaults filled in for anything missing. */
+export function settingsWithDefaults(repo) {
+  return { ...DEFAULT_SETTINGS, ...repo.allSettings() };
 }
 
 class HttpError extends Error {
@@ -315,7 +320,7 @@ export function createApi(ctx) {
       }
     }],
 
-    ['GET', /^\/api\/settings$/, () => repo.allSettings()],
+    ['GET', /^\/api\/settings$/, () => settingsWithDefaults(repo)],
     ['PUT', /^\/api\/settings$/, (req, res, m, body) => {
       for (const [k, v] of Object.entries(body)) {
         if (!(k in DEFAULT_SETTINGS)) throw new HttpError(400, `unknown setting ${k}`);
@@ -330,7 +335,7 @@ export function createApi(ctx) {
           repo.setSetting(k, v);
         }
       }
-      return repo.allSettings();
+      return settingsWithDefaults(repo);
     }],
 
     ['GET', /^\/api\/program$/, () => ctx.program()],

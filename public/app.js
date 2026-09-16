@@ -763,8 +763,8 @@
     const s = S.settings;
     const voice = el('input', { type: 'checkbox', checked: !!s.voice, id: 'set-voice' });
     const ha = el('input', { type: 'checkbox', checked: !!s.haAnnounce, disabled: !S.health?.ha, id: 'set-ha' });
-    const kcal = el('input', { type: 'number', value: s.targets.kcal, id: 'set-kcal' });
-    const prot = el('input', { type: 'number', value: s.targets.proteinG, id: 'set-protein' });
+    const kcal = el('input', { type: 'number', value: s.targets?.kcal ?? 2600, id: 'set-kcal' });
+    const prot = el('input', { type: 'number', value: s.targets?.proteinG ?? 140, id: 'set-protein' });
     const maxHr = el('input', { type: 'number', value: s.maxHr ?? 191, id: 'set-maxhr' });
     const athlete = el('textarea', { id: 'set-athlete', placeholder: 'Age, height, weight, goals, training history, where you live (for portion sizes)…' });
     athlete.value = s.athlete ?? '';
