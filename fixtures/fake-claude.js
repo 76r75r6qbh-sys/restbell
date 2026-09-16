@@ -19,5 +19,5 @@ if ('$schema' in schema) {
 const isFood = 'items' in schema.properties;
 const out = isFood
   ? { items: [{ name: 'eggs', kcal: 140, proteinG: 12 }], kcal: 140, proteinG: 12, note: `model=${val('--model')}` }
-  : { summary: `ok for ${val('--model')}`, wins: [], flags: [], nextWeek: ['keep going'], nutrition: 'fine' };
+  : { summary: `ok for ${val('--model')}`, wins: [], flags: [], nextWeek: ['keep going'], nutrition: 'fine', proposals: [] };
 console.log(JSON.stringify({ is_error: false, result: JSON.stringify(out), structured_output: out }));

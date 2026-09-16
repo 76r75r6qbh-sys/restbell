@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
+import { PROPOSAL_GUIDE } from './proposals.js';
 
 export const MODEL = 'claude-opus-5';
 
@@ -17,12 +18,14 @@ export const FoodEstimate = z.object({
   note: z.string(),
 });
 
+// Proposals are loosely typed here (the model may return any JSON); src/proposals.js validates each one strictly.
 export const Review = z.object({
   summary: z.string(),
   wins: z.array(z.string()),
   flags: z.array(z.string()),
   nextWeek: z.array(z.string()),
   nutrition: z.string(),
+  proposals: z.array(z.record(z.string(), z.unknown())),
 });
 
 export const FOOD_SYSTEM = `You estimate calories and protein for meals described in plain words, in any language.
@@ -36,7 +39,9 @@ export function buildFoodPrompt(text, athlete = '') {
 export const REVIEW_SYSTEM = `You are the strength and conditioning coach of one athlete. Weight progression is
 decided by the app's rules, not by you; you comment on trends, effort, adherence, recovery and nutrition.
 Write in second person, plain and specific, no cheerleading. Flags are things to watch or fix. Next week:
-2 to 4 concrete instructions. Keep the summary under 120 words.`;
+2 to 4 concrete instructions. Keep the summary under 120 words.
+
+${PROPOSAL_GUIDE}`;
 
 function fmtSession(s) {
   const head = `${s.date} ${s.dayKey} (${s.type}) feel ${s.feel ?? '-'}/5${s.notes ? ` — "${s.notes}"` : ''}`;

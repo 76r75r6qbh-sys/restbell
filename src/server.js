@@ -68,7 +68,9 @@ export function makeReviewCron(ctx, { hour = 18, weekday = 7, log = console } = 
     if (weekdayOf(date) !== weekday) return false;
     if (Number(amsterdamHour.format(now)) < hour) return false;
     const weekStart = weekStartOf(date);
-    if (ctx.repo.hasCoachNote(weekStart)) return false;
+    // A note written earlier in the week (a manual run) is replaced by the Sunday review; one written on Sunday is final.
+    const existing = ctx.repo.coachNoteFor(weekStart);
+    if (existing && todayStr(new Date(existing.createdAt)) >= date) return false;
     if (attempts.weekStart !== weekStart) attempts = { weekStart, count: 0 };
     if (attempts.count >= 3) return false;
     attempts.count += 1;

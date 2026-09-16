@@ -2,6 +2,7 @@ import { plannedDay, todayStr, weekStartOf, addDays } from './schedule.js';
 import { dayByKey, targetsFor, applyProgression } from './program.js';
 import { reviewToText, CoachError } from './coach.js';
 import { analyzeSamples, intensityFromAvg } from './hr.js';
+import { sanitizeProposals, describeProposal, applyProposal } from './proposals.js';
 
 export const DEFAULT_SETTINGS = {
   targets: { kcal: 2600, proteinG: 140 },
@@ -134,7 +135,11 @@ export async function runWeeklyReview(ctx, weekStart) {
   const week = repo.weekData(weekStart, addDays(weekStart, 6));
   const previous = repo.coachNotes(1)[0];
   const review = await coach.weeklyReview(week, ctx.program(), repo.allSettings(), previous?.text ?? null);
-  return repo.addCoachNote({ weekStart, text: reviewToText(review), json: review });
+  const note = repo.addCoachNote({ weekStart, text: reviewToText(review), json: review });
+  const program = ctx.program();
+  const proposals = sanitizeProposals(review.proposals, program).map((proposal) => ({ proposal, text: describeProposal(proposal, program) }));
+  repo.replaceProposals(weekStart, proposals);
+  return { ...note, proposals: repo.openProposals().filter((p) => p.weekStart === weekStart) };
 }
 
 /**
@@ -283,7 +288,18 @@ export function createApi(ctx) {
       return { ok: true };
     }],
 
-    ['GET', /^\/api\/coach$/, () => ({ notes: repo.coachNotes(12), enabled: ctx.coach.enabled })],
+    ['GET', /^\/api\/coach$/, () => ({ notes: repo.coachNotes(12), proposals: repo.openProposals(), enabled: ctx.coach.enabled })],
+    ['POST', /^\/api\/coach\/proposals\/(\d+)\/(apply|dismiss)$/, (req, res, m) => {
+      const row = repo.proposal(Number(m[1]));
+      if (!row) throw new HttpError(404, 'proposal not found');
+      if (row.status !== 'open') throw new HttpError(409, `proposal already ${row.status}`);
+      if (m[2] === 'dismiss') return repo.resolveProposal(row.id, 'dismissed');
+      const change = applyProposal(row.proposal, ctx.program(), repo.allSettings());
+      if (change.program) ctx.saveProgram(change.program);
+      for (const [k, v] of Object.entries(change.settings)) repo.setSetting(k, v);
+      for (const [id, w] of Object.entries(change.exerciseWeights)) repo.setExerciseState(id, w, 0);
+      return repo.resolveProposal(row.id, 'applied');
+    }],
     ['POST', /^\/api\/coach\/review$/, async (req, res, m, body) => {
       const weekStart = weekStartOf(dateOf(body.weekStart ?? body.date));
       try {

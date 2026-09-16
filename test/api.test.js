@@ -9,7 +9,12 @@ import { makeAuth } from '../src/auth.js';
 const fakeCoach = {
   enabled: true,
   estimateFood: async (text) => ({ items: [{ name: text, kcal: 250, proteinG: 18 }], kcal: 250, proteinG: 18, note: '' }),
-  weeklyReview: async (week) => ({ summary: `Reviewed ${week.sessions.length} sessions.`, wins: ['showed up'], flags: [], nextWeek: ['add 2.5 kg'], nutrition: 'fine' }),
+  weeklyReview: async (week) => ({ summary: `Reviewed ${week.sessions.length} sessions.`, wins: ['showed up'], flags: [], nextWeek: ['add 2.5 kg'], nutrition: 'fine',
+    proposals: [
+      { kind: 'targets', kcal: 2700, proteinG: null, reason: 'weight flat for two weeks' },
+      { kind: 'set_weight', exerciseId: 'squat', weight: 55, reason: 'missed reps twice' },
+      { kind: 'move_day', dayKey: 'ZZ', weekday: 2, reason: 'invalid, should be dropped' },
+    ] }),
 };
 const fakeAnnouncer = { configured: true, calls: [], announce: async (t) => { fakeAnnouncer.calls.push(t); } };
 
@@ -149,12 +154,22 @@ test('password protects the api', async () => {
 
 test('review cron only fires on Sunday evening once per week', async () => {
   const notes = new Set();
-  const ctx = { coach: fakeCoach, repo: { hasCoachNote: (w) => notes.has(w), weekData: () => ({ sessions: [], checkins: [], foodDays: [] }), coachNotes: () => [], allSettings: () => ({}), addCoachNote: ({ weekStart }) => { notes.add(weekStart); return {}; } }, program: () => ({ name: 'p', days: [] }) };
+  const ctx = { coach: fakeCoach, repo: { coachNoteFor: (w) => (notes.has(w) ? { createdAt: '2026-10-11T16:31:00.000Z' } : null), weekData: () => ({ sessions: [], checkins: [], foodDays: [] }), coachNotes: () => [], allSettings: () => ({}), addCoachNote: ({ weekStart }) => { notes.add(weekStart); return {}; }, replaceProposals: () => {}, openProposals: () => [] }, program: () => ({ name: 'p', days: [] }) };
   const tick = makeReviewCron(ctx, { log: {} });
   assert.equal(await tick(new Date('2026-10-10T17:00:00Z')), false); // Saturday
   assert.equal(await tick(new Date('2026-10-11T10:00:00Z')), false); // Sunday morning
   assert.equal(await tick(new Date('2026-10-11T16:30:00Z')), true);  // Sunday 18:30 Amsterdam
   assert.equal(await tick(new Date('2026-10-11T17:30:00Z')), false); // already written
+});
+
+test('review cron re-runs when the week only has a note written before Sunday', async () => {
+  let created = '2026-10-14T10:00:00.000Z'; // a manual review run on Wednesday
+  let runs = 0;
+  const ctx = { coach: fakeCoach, repo: { coachNoteFor: () => ({ createdAt: created }), weekData: () => ({ sessions: [], checkins: [], foodDays: [] }), coachNotes: () => [], allSettings: () => ({}), addCoachNote: () => { runs += 1; created = '2026-10-18T16:05:00.000Z'; return {}; }, replaceProposals: () => {}, openProposals: () => [] }, program: () => ({ name: 'p', days: [] }) };
+  const tick = makeReviewCron(ctx, { log: {} });
+  assert.equal(await tick(new Date('2026-10-18T16:05:00Z')), true); // Sunday 18:05 Amsterdam: note is stale, run again
+  assert.equal(await tick(new Date('2026-10-18T16:06:00Z')), false); // now written on Sunday
+  assert.equal(runs, 1);
 });
 
 test('today returns the open session day even when it is not the planned day', async () => {
@@ -216,4 +231,24 @@ test('favorites api and recent meals', async () => {
   assert.equal((await api('POST', '/api/food/favorites', { text: 'x', kcal: 'no' })).status, 400);
   assert.equal((await api('DELETE', `/api/food/favorites/${fav.json.id}`)).status, 200);
   assert.equal((await api('GET', '/api/food/favorites')).json.favorites.length, 0);
+});
+
+test('review proposals are listed, applied and dismissed', async () => {
+  const r = await api('POST', '/api/coach/review', { weekStart: '2026-11-02' });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.equal(r.json.proposals.length, 2, 'invalid proposal dropped');
+  const open = (await api('GET', '/api/coach')).json.proposals.filter((p) => p.weekStart === '2026-11-02');
+  assert.equal(open.length, 2);
+  assert.match(open[0].text, /2700 kcal/);
+  const applied = await api('POST', `/api/coach/proposals/${open[0].id}/apply`);
+  assert.equal(applied.json.status, 'applied');
+  assert.equal((await api('GET', '/api/settings')).json.targets.kcal, 2700);
+  assert.equal((await api('POST', `/api/coach/proposals/${open[0].id}/apply`)).status, 409);
+  const dismissed = await api('POST', `/api/coach/proposals/${open[1].id}/dismiss`);
+  assert.equal(dismissed.json.status, 'dismissed');
+  assert.equal((await api('GET', '/api/coach')).json.proposals.filter((p) => p.weekStart === '2026-11-02').length, 0);
+  // re-running the review replaces open proposals instead of duplicating them
+  await api('POST', '/api/coach/review', { weekStart: '2026-11-02' });
+  assert.equal((await api('GET', '/api/coach')).json.proposals.filter((p) => p.weekStart === '2026-11-02').length, 2);
+  await api('PUT', '/api/settings', { targets: { kcal: 2600, proteinG: 140 } });
 });

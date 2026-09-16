@@ -694,6 +694,27 @@
       el('p', { class: 'muted small' }, S.coach.enabled ? 'Every Sunday evening the coach reads the week and writes a note here. Weights are progressed by the rules, not by the note.' : 'The coach is off: no ANTHROPIC_API_KEY on the server.'),
       btn,
     ));
+    if (S.coach.proposals?.length) {
+      const act = async (id, action) => {
+        try {
+          await api('POST', `/api/coach/proposals/${id}/${action}`);
+          toast(action === 'apply' ? 'Applied' : 'Dismissed');
+          S.coach = null;
+          S.today = null;
+          await loadSettings();
+          await loadToday();
+          render();
+        } catch (e) { toast(e.message); }
+      };
+      view.append(el('div', { class: 'card' },
+        el('div', { class: 'eyebrow' }, 'Proposed changes'),
+        el('p', { class: 'small muted' }, 'The coach suggests these. Nothing changes until you apply it.'),
+        el('div', { class: 'list' }, S.coach.proposals.map((p) => el('div', { class: 'item', style: 'display:grid' },
+          el('div', { class: 'item-main' }, el('div', { class: 'item-title' }, p.text), el('div', { class: 'item-sub' }, p.proposal.reason)),
+          el('div', { class: 'row' }, el('button', { class: 'btn ghost', onclick: () => act(p.id, 'dismiss') }, 'Dismiss'), el('button', { class: 'btn primary', onclick: () => act(p.id, 'apply') }, 'Apply')),
+        ))),
+      ));
+    }
     if (!S.coach.notes.length) view.append(el('div', { class: 'card' }, el('div', { class: 'empty' }, 'No notes yet.')));
     for (const n of S.coach.notes) {
       view.append(el('div', { class: 'card' },

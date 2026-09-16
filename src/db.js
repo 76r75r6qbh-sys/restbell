@@ -39,6 +39,9 @@ CREATE TABLE IF NOT EXISTS workouts (
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   UNIQUE(start, type));
 CREATE INDEX IF NOT EXISTS workouts_date ON workouts(date);
+CREATE TABLE IF NOT EXISTS proposals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, week_start TEXT NOT NULL, json TEXT NOT NULL, text TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'open', created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), resolved_at TEXT);
 CREATE TABLE IF NOT EXISTS coach_notes (
   id INTEGER PRIMARY KEY AUTOINCREMENT, week_start TEXT NOT NULL UNIQUE, text TEXT NOT NULL, json TEXT,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
@@ -86,6 +89,7 @@ const workoutRow = (r) => ({
   samples: r.samples, createdAt: r.created_at,
 });
 const favoriteRow = (r) => ({ id: r.id, name: r.name, text: r.text, kcal: r.kcal, proteinG: r.protein_g, createdAt: r.created_at });
+const proposalRow = (r) => ({ id: r.id, weekStart: r.week_start, proposal: JSON.parse(r.json), text: r.text, status: r.status, createdAt: r.created_at, resolvedAt: r.resolved_at });
 const noteRow = (r) => ({ id: r.id, weekStart: r.week_start, text: r.text, json: r.json ? JSON.parse(r.json) : null, createdAt: r.created_at });
 
 /** Typed data-access helpers over an open database. */
@@ -244,8 +248,34 @@ export function makeRepo(db) {
            created_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') RETURNING *`).get(weekStart, text, json ? JSON.stringify(json) : null);
       return noteRow(r);
     },
+    replaceProposals(weekStart, items) {
+      db.exec('BEGIN');
+      try {
+        q("DELETE FROM proposals WHERE week_start = ? AND status = 'open'").run(weekStart);
+        for (const it of items) q('INSERT INTO proposals(week_start, json, text) VALUES (?, ?, ?)').run(weekStart, JSON.stringify(it.proposal), it.text);
+        db.exec('COMMIT');
+      } catch (e) {
+        db.exec('ROLLBACK');
+        throw e;
+      }
+    },
+    openProposals() {
+      return q("SELECT * FROM proposals WHERE status = 'open' ORDER BY id").all().map(proposalRow);
+    },
+    proposal(id) {
+      const r = q('SELECT * FROM proposals WHERE id = ?').get(id);
+      return r ? proposalRow(r) : null;
+    },
+    resolveProposal(id, status) {
+      const r = q("UPDATE proposals SET status = ?, resolved_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ? RETURNING *").get(status, id);
+      return r ? proposalRow(r) : null;
+    },
     hasCoachNote(weekStart) {
       return !!q('SELECT 1 FROM coach_notes WHERE week_start = ?').get(weekStart);
+    },
+    coachNoteFor(weekStart) {
+      const r = q('SELECT * FROM coach_notes WHERE week_start = ?').get(weekStart);
+      return r ? noteRow(r) : null;
     },
     coachNotes(limit = 12) {
       return q('SELECT * FROM coach_notes ORDER BY week_start DESC LIMIT ?').all(limit).map(noteRow);
@@ -287,6 +317,7 @@ export function makeRepo(db) {
         favorites: q('SELECT * FROM favorites ORDER BY id').all().map(favoriteRow),
         workouts: q('SELECT * FROM workouts ORDER BY start').all().map(workoutRow),
         coachNotes: q('SELECT * FROM coach_notes ORDER BY week_start').all().map(noteRow),
+        proposals: q('SELECT * FROM proposals ORDER BY id').all().map(proposalRow),
       };
     },
   };
