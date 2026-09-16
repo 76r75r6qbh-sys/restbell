@@ -21,7 +21,7 @@ const fakeAnnouncer = { configured: true, calls: [], announce: async (t) => { fa
 let srv;
 let base;
 const staticDir = mkdtempSync(join(tmpdir(), 'trainer-static-'));
-writeFileSync(join(staticDir, 'index.html'), '<title>Trainer</title>');
+writeFileSync(join(staticDir, 'index.html'), '<title>Restbell</title>');
 
 before(async () => {
   srv = await startServer({ dataDir: mkdtempSync(join(tmpdir(), 'trainer-data-')), staticDir, coach: fakeCoach, announcer: fakeAnnouncer, cron: false, log: { error() {}, info() {} } });
@@ -40,7 +40,7 @@ test('health and static shell', async () => {
   assert.equal(h.json.ok, true);
   const html = await fetch(base + '/');
   assert.equal(html.status, 200);
-  assert.match(await html.text(), /Trainer/);
+  assert.match(await html.text(), /Restbell/);
   assert.equal((await fetch(base + '/unknown-route')).status, 200);
   assert.equal((await fetch(base + '/missing.png')).status, 404);
 });

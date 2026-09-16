@@ -1,8 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <rect width="512" height="512" rx="112" fill="#0E7C86"/>
-  <g fill="none" stroke="#FFFFFF" stroke-width="28" stroke-linecap="round">
-    <path d="M128 256h256"/>
-    <path d="M96 200v112M416 200v112"/>
-    <path d="M148 172v168M364 172v168"/>
+  <!-- bell body -->
+  <path d="M256 92c-14 0-25 11-25 25v9c-52 12-90 58-90 113v82l-33 44v14h296v-14l-33-44v-82c0-55-38-101-90-113v-9c0-14-11-25-25-25z" fill="#FFFFFF"/>
+  <!-- barbell as the clapper -->
+  <g fill="#0E7C86">
+    <rect x="176" y="317" width="160" height="16" rx="8"/>
+    <rect x="160" y="300" width="26" height="50" rx="7"/>
+    <rect x="326" y="300" width="26" height="50" rx="7"/>
   </g>
+  <!-- rest timer arc -->
+  <path d="M212 402a48 48 0 0 0 88 0" fill="none" stroke="#FFFFFF" stroke-width="22" stroke-linecap="round"/>
 </svg>

@@ -796,7 +796,7 @@
           toast('Settings saved');
         } catch (e) { toast(e.message); }
       } }, 'Save'),
-      el('p', { class: 'small muted' }, `Trainer ${S.health?.version ?? ''} · ${S.queue.length} unsent`),
+      el('p', { class: 'small muted' }, `Restbell ${S.health?.version ?? ''} · ${S.queue.length} unsent`),
     );
   }
   $('#btn-settings').addEventListener('click', () => S.settings && settingsSheet());
