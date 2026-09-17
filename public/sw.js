@@ -1,4 +1,4 @@
-const CACHE = 'restbell-shell-v4';
+const CACHE = 'restbell-shell-v5';
 const SHELL = ['/', '/index.html', '/awake.js', '/guide.js', '/app.js', '/styles.css', '/manifest.webmanifest', '/icon.svg'];
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

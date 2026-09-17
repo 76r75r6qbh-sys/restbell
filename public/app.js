@@ -107,10 +107,14 @@
   function speak(text) {
     if (!S.settings?.voice || !('speechSynthesis' in window)) return;
     try {
-      speechSynthesis.cancel();
+      // iOS: ask for a short "transient" audio session so music dips for the cue and resumes, instead of stopping.
+      const session = navigator.audioSession;
+      if (session) session.type = 'transient';
+      if (speechSynthesis.speaking) speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text);
       u.lang = 'en-GB';
       u.rate = 1;
+      u.onend = u.onerror = () => { if (session) session.type = 'auto'; };
       speechSynthesis.speak(u);
     } catch { /* ignore */ }
   }
@@ -184,6 +188,7 @@
       $('#login-password').value = '';
       boot();
     } else {
+      $('#login-error').textContent = res.status === 429 ? 'Too many attempts. Try again in 15 minutes.' : 'Wrong password.';
       $('#login-error').hidden = false;
     }
   });
@@ -424,11 +429,10 @@
 
   function guideAfterLog(ex, idx, day) {
     const exs = day.exercises;
-    const [next] = G.openSteps(exs, S.session.sets);
+    const [next] = G.openSteps(exs, S.session.sets, G.orderFor(day));
     S.guide.last = `${ex.name} · set ${idx + 1} logged`;
     if (!next) {
       stopTimer();
-      speak('All sets done. Nice work.');
       if (navigator.vibrate) navigator.vibrate([120, 60, 120]);
       return render();
     }
@@ -459,23 +463,29 @@
 
     const exs = day.exercises;
     const sets = S.session.sets;
-    const steps = G.openSteps(exs, sets);
-    const [step, after] = steps;
+    const order = G.orderFor(day);
+    const [step, after] = G.openSteps(exs, sets, order);
     const totalRounds = G.rounds(exs);
+    const position = !step ? 'All sets done'
+      : order === 'rounds' ? `Round ${step.setIndex + 1} of ${totalRounds} · Exercise ${step.index + 1} of ${exs.length}`
+      : `Exercise ${step.index + 1} of ${exs.length} · Set ${step.setIndex + 1} of ${exs[step.index].sets}`;
 
     const top = el('div', { class: 'g-top' },
       el('button', { class: 'g-icon', 'aria-label': 'Show all exercises', onclick: () => { S.guide.open = false; render(); window.scrollTo(0, 0); }, html: ICON.list }),
       el('div', { class: 'g-heading' },
         el('div', { class: 'g-eyebrow' }, day.title),
-        el('div', { class: 'g-count num' }, step ? `Round ${step.setIndex + 1} of ${totalRounds} · Exercise ${step.index + 1} of ${exs.length}` : 'All sets done')),
+        el('div', { class: 'g-count num' }, position)),
       el('button', { class: 'g-pill', onclick: () => finishSheet(day) }, 'Finish'),
     );
-    // One segment per round, filled by the share of that round's sets that are logged.
-    const progress = el('div', { class: 'g-progress', 'aria-hidden': 'true' }, Array.from({ length: totalRounds }, (_, r) => {
-      const inRound = exs.filter((e) => r < e.sets);
-      const done = inRound.filter((e) => sets.some((s) => s.exerciseId === e.id && s.setIndex === r)).length;
-      return el('span', { class: `g-seg${step?.setIndex === r ? ' now' : ''}` }, el('i', { style: `width:${Math.round((done / inRound.length) * 100)}%` }));
-    }));
+    // One segment per round (home) or per exercise (gym), filled by the share of its sets that are logged.
+    const segments = order === 'rounds'
+      ? Array.from({ length: totalRounds }, (_, r) => {
+        const inRound = exs.filter((e) => r < e.sets);
+        return { now: step?.setIndex === r, share: inRound.filter((e) => loggedSet(e.id, r)).length / inRound.length };
+      })
+      : exs.map((e, k) => ({ now: step?.index === k, share: G.loggedCount(e, sets) / e.sets }));
+    const progress = el('div', { class: 'g-progress', 'aria-hidden': 'true' }, segments.map((seg) =>
+      el('span', { class: `g-seg${seg.now ? ' now' : ''}` }, el('i', { style: `width:${Math.round(seg.share * 100)}%` }))));
 
     let body;
     if (S.timer && step) body = guideRest(exs, step);
@@ -580,7 +590,6 @@
           S.doneSummary = { title: day.title, changes: r.changes, sets: r.session.sets.length };
           S.session = null;
           S.editing = null;
-          speak('Session done. Nice work.');
           await loadToday();
           render();
           window.scrollTo(0, 0);

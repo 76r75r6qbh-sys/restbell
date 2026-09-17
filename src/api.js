@@ -159,9 +159,15 @@ export function createApi(ctx) {
     ['GET', /^\/api\/health$/, () => ({ ok: true, version: ctx.version, coach: ctx.coach.enabled, ha: ctx.announcer.configured, auth: auth.enabled })],
     ['GET', /^\/api\/auth$/, (req) => ({ enabled: auth.enabled, ok: auth.verify(req.headers.cookie) })],
     ['POST', /^\/api\/login$/, async (req, res, m, body) => {
-      const cookie = auth.cookieFor(body.password);
-      if (!cookie) throw new HttpError(401, 'wrong password');
-      res.setHeader('Set-Cookie', auth.setCookieHeader(cookie));
+      // Behind the Cloudflare tunnel every request comes from cloudflared, which passes the visitor's address along.
+      const client = req.headers['cf-connecting-ip'] ?? req.socket.remoteAddress;
+      const result = auth.login(body.password, client);
+      if (result.locked) {
+        res.setHeader('Retry-After', String(result.retryAfterSec));
+        throw new HttpError(429, 'too many attempts, try again later');
+      }
+      if (!result.ok) throw new HttpError(401, 'wrong password');
+      res.setHeader('Set-Cookie', auth.setCookieHeader(result.cookie, { secure: req.headers['x-forwarded-proto'] === 'https' }));
       return { ok: true };
     }],
 

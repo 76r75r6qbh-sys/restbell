@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 // public/guide.js is a classic browser script; importing it registers globalThis.RestbellGuide.
 await import('../public/guide.js');
-const { loggedCount, openSteps, rounds } = globalThis.RestbellGuide;
+const { loggedCount, openSteps, rounds, orderFor } = globalThis.RestbellGuide;
 
 const exercises = [
   { id: 'squat', sets: 3 },
@@ -20,20 +20,32 @@ test('counts logged sets per exercise, ignoring duplicates and out-of-range inde
 });
 
 test('steps run in rounds: set 1 of every exercise, then set 2, and so on', () => {
-  assert.deepEqual(ids(openSteps(exercises, [])), ['squat1', 'bench1', 'crunch1', 'squat2', 'bench2', 'crunch2', 'squat3', 'bench3']);
+  assert.deepEqual(ids(openSteps(exercises, [], 'rounds')), ['squat1', 'bench1', 'crunch1', 'squat2', 'bench2', 'crunch2', 'squat3', 'bench3']);
 });
 
 test('an exercise with fewer sets drops out of later rounds', () => {
   assert.equal(rounds(exercises), 3);
-  assert.deepEqual(ids(openSteps(exercises, [])).slice(-2), ['squat3', 'bench3']);
+  assert.deepEqual(ids(openSteps(exercises, [], 'rounds')).slice(-2), ['squat3', 'bench3']);
 });
 
 test('logged sets are skipped, so the first open step is where to resume', () => {
   const sets = [set('squat', 0), set('bench', 0), set('crunch', 0), set('bench', 1)];
-  assert.deepEqual(ids(openSteps(exercises, sets)), ['squat2', 'crunch2', 'squat3', 'bench3']);
+  assert.deepEqual(ids(openSteps(exercises, sets, 'rounds')), ['squat2', 'crunch2', 'squat3', 'bench3']);
+  assert.deepEqual(ids(openSteps(exercises, sets, 'straight')), ['squat2', 'squat3', 'bench3', 'crunch2']);
 });
 
 test('no open steps when every set is logged', () => {
   const all = exercises.flatMap((e) => Array.from({ length: e.sets }, (_, i) => set(e.id, i)));
-  assert.deepEqual(openSteps(exercises, all), []);
+  assert.deepEqual(openSteps(exercises, all, 'rounds'), []);
+  assert.deepEqual(openSteps(exercises, all, 'straight'), []);
+});
+
+test('straight sets: every set of an exercise before the next exercise', () => {
+  assert.deepEqual(ids(openSteps(exercises, [], 'straight')), ['squat1', 'squat2', 'squat3', 'bench1', 'bench2', 'bench3', 'crunch1', 'crunch2']);
+});
+
+test('gym lift days use straight sets, home and travel sessions go in rounds', () => {
+  assert.equal(orderFor({ type: 'lift' }), 'straight');
+  assert.equal(orderFor({ type: 'home' }), 'rounds');
+  assert.equal(orderFor({ type: 'travel' }), 'rounds');
 });

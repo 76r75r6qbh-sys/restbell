@@ -147,6 +147,13 @@ test('password protects the api', async () => {
     assert.equal(ok.status, 200);
     const cookie = ok.headers.get('set-cookie').split(';')[0];
     assert.equal((await fetch(b + '/api/today', { headers: { cookie } })).status, 200);
+    const viaTunnel = await fetch(b + '/api/login', { method: 'POST', headers: { 'x-forwarded-proto': 'https' }, body: JSON.stringify({ password: 'pw' }) });
+    assert.match(viaTunnel.headers.get('set-cookie'), /; Secure/);
+    const attacker = { 'cf-connecting-ip': '203.0.113.9' };
+    for (let i = 0; i < 10; i++) await fetch(b + '/api/login', { method: 'POST', headers: attacker, body: JSON.stringify({ password: 'guess' }) });
+    const blocked = await fetch(b + '/api/login', { method: 'POST', headers: attacker, body: JSON.stringify({ password: 'pw' }) });
+    assert.equal(blocked.status, 429);
+    assert.ok(Number(blocked.headers.get('retry-after')) > 0);
   } finally {
     await s2.close();
   }

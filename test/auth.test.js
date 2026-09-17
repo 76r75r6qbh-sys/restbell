@@ -19,6 +19,27 @@ test('auth issues a cookie for the right password only', () => {
   assert.equal(auth.verify(''), false);
 });
 
+test('login locks a client out after too many wrong passwords, per client', () => {
+  let t = 0;
+  const auth = makeAuth({ password: 'hunter2', secret: 's', maxFailures: 3, windowMs: 1000, now: () => t });
+  for (let i = 0; i < 3; i++) assert.equal(auth.login('nope', 'a').ok, false);
+  const locked = auth.login('hunter2', 'a');
+  assert.equal(locked.ok, false);
+  assert.equal(locked.locked, true, 'even the right password is refused while locked');
+  assert.ok(locked.retryAfterSec > 0);
+  assert.equal(auth.login('hunter2', 'b').ok, true, 'another client is unaffected');
+  t = 1001;
+  const again = auth.login('hunter2', 'a');
+  assert.equal(again.ok, true, 'the lock expires after the window');
+  assert.ok(again.cookie);
+});
+
+test('cookie is marked Secure only when served over https', () => {
+  const auth = makeAuth({ password: 'p', secret: 's' });
+  assert.doesNotMatch(auth.setCookieHeader('x'), /Secure/);
+  assert.match(auth.setCookieHeader('x', { secure: true }), /; Secure/);
+});
+
 test('announcer reports unconfigured and posts tts.speak when configured', async () => {
   assert.equal(makeAnnouncer({}).configured, false);
   assert.deepEqual(await makeAnnouncer({}).announce('hi'), { configured: false });
