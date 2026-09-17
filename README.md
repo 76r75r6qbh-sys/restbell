@@ -42,9 +42,22 @@ Docker alternative: `docker build -t trainer . && docker run -p 3000:3000 -v tra
 
 ## iPhone
 
-Open the URL in Safari, Share → **Add to Home Screen**. Works over plain HTTP
-on the LAN or Tailscale. Set logging is queued on the phone when there is no
-connection and synced later.
+Open the URL in Safari, Share → **Add to Home Screen**. Plain HTTP on the LAN
+or Tailscale works, but HTTPS is better: the screen only reliably stays on
+during a session (Wake Lock API) and the offline shell only installs in a
+secure context. Set logging is queued on the phone when there is no connection
+and synced later.
+
+### HTTPS through a Cloudflare Tunnel
+
+1. Set a password first, from a real terminal on the Proxmox host:
+   `CTID=210 bash deploy/set-password.sh` (input is hidden).
+2. Add a public hostname on the tunnel pointing to `http://<container-ip>:3000`
+   and give the container a fixed IP or DHCP reservation.
+3. Re-add the home-screen icon from the HTTPS address.
+
+Behind the tunnel the login cookie is marked `Secure`, and a client is locked
+out for 15 minutes after 10 wrong passwords (keyed on `CF-Connecting-IP`).
 
 ## Coach with a Claude subscription (no API key)
 
