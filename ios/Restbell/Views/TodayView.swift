@@ -1,6 +1,7 @@
 import SwiftUI
 import RestbellKit
 import UserNotifications
+import UIKit
 
 struct TodayView: View {
     @Environment(AppModel.self) private var model

@@ -7,7 +7,7 @@ import UIKit
 /// and the Live Activity on the Lock Screen and in the Dynamic Island.
 @Observable @MainActor
 final class WorkoutController {
-    weak var app: AppModel?
+    @ObservationIgnored weak var app: AppModel?
 
     var day: Day?
     var session: Session?
@@ -21,9 +21,9 @@ final class WorkoutController {
     /// Set count that's logged on the phone but not yet on the server.
     var queued = 0
 
-    private var activity: Activity<WorkoutAttributes>?
-    private var restTask: Task<Void, Never>?
-    let queue = SetQueue(directory: AppGroup.containerURL)
+    @ObservationIgnored private var activity: Activity<WorkoutAttributes>?
+    @ObservationIgnored private var restTask: Task<Void, Never>?
+    @ObservationIgnored let queue = SetQueue(directory: AppGroup.containerURL)
 
     var exercises: [Exercise] { day?.exercises ?? [] }
     var order: GuideOrder { GuideOrder.forDay(type: day?.type ?? "lift") }

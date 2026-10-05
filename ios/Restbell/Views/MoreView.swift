@@ -201,14 +201,14 @@ struct WorkoutSections: View {
             }
         }
         if let d = workout.details {
-            let dynamics: [(String, String?)] = [
+            let dynamics: [(name: String, value: String?)] = [
                 ("Cadence", d.cadenceSpm.map { "\(Fmt.number($0)) spm" }), ("Power", d.powerW.map { "\(Fmt.number($0)) W" }),
                 ("Stride length", d.strideM.map { String(format: "%.2f m", $0) }), ("Ground contact", d.groundContactMs.map { "\(Fmt.number($0)) ms" }),
                 ("Vertical oscillation", d.verticalOscillationCm.map { String(format: "%.1f cm", $0) }),
             ]
-            if dynamics.contains(where: { $0.1 != nil }) {
+            if dynamics.contains(where: { $0.value != nil }) {
                 Section("Running form") {
-                    ForEach(dynamics.filter { $0.1 != nil }, id: \.0) { LabeledContent($0.0, value: $0.1!) }
+                    ForEach(dynamics.filter { $0.value != nil }, id: \.name) { LabeledContent($0.name, value: $0.value!) }
                 }
             }
             if let splits = d.splits, !splits.isEmpty {

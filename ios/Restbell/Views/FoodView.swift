@@ -145,8 +145,8 @@ struct LogFoodSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
-    @State private var kcal: Double?
-    @State private var protein: Double?
+    @State private var kcal: Double = 0
+    @State private var protein: Double = 0
     @State private var estimate: FoodEstimate?
     @State private var estimating = false
     @State private var saveFavorite = false
@@ -199,7 +199,7 @@ struct LogFoodSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { Task { await save() } }.disabled(kcal == nil || text.isEmpty)
+                    Button("Save") { Task { await save() } }.disabled(kcal <= 0 || text.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
             .onAppear { focused = true }
@@ -225,8 +225,8 @@ struct LogFoodSheet: View {
     }
 
     func save() async {
-        guard let api = model.api, let kcal else { return }
-        let p = protein ?? 0
+        guard let api = model.api, kcal > 0 else { return }
+        let p = protein
         do {
             _ = try await api.addFood(.init(text: text, kcal: kcal, proteinG: p))
             if saveFavorite { _ = try? await api.addFavorite(name: String(text.prefix(30)), text: text, kcal: kcal, proteinG: p) }

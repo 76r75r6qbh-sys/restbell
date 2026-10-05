@@ -272,8 +272,8 @@ struct FinishForm: View {
 
 struct RunView: View {
     @Environment(AppModel.self) private var model
-    @State private var km: Double?
-    @State private var minutes: Double?
+    @State private var km: Double = 0
+    @State private var minutes: Double = 0
     @State private var feel = 3
     @State private var notes = ""
 
@@ -307,7 +307,7 @@ struct RunView: View {
             }
             Section {
                 Button("Finish Run") {
-                    Task { await model.workout.finish(feel: feel, notes: notes.isEmpty ? nil : notes, distanceKm: km, durationMin: minutes) }
+                    Task { await model.workout.finish(feel: feel, notes: notes.isEmpty ? nil : notes, distanceKm: km > 0 ? km : nil, durationMin: minutes > 0 ? minutes : nil) }
                 }
                 .frame(maxWidth: .infinity)
                 .disabled(model.workout.busy)
@@ -317,8 +317,8 @@ struct RunView: View {
             // Prefill from a Watch run imported since the session started.
             await HealthSync.shared.sync(trigger: .manual)
             if let w = try? await model.api?.history(limit: 3).workouts.first(where: { $0.type == "Running" && $0.date == DayString.today() }) {
-                km = w.distanceKm
-                minutes = w.durationMin
+                km = w.distanceKm ?? 0
+                minutes = w.durationMin ?? 0
             }
         }
     }
