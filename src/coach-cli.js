@@ -2,7 +2,7 @@
 // token (CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`) can be used instead of an API key.
 import { spawn } from 'node:child_process';
 import { z } from 'zod';
-import { CoachError, FoodEstimate, Review, FOOD_SYSTEM, REVIEW_SYSTEM, buildFoodPrompt, buildReviewPrompt } from './coach.js';
+import { CoachError, FoodEstimate, Review, ChatReply, FOOD_SYSTEM, REVIEW_SYSTEM, CHAT_SYSTEM, buildFoodPrompt, buildReviewPrompt, chatTranscript } from './coach.js';
 
 function run(bin, prefixArgs, args, { timeoutMs, env }) {
   return new Promise((resolve, reject) => {
@@ -65,5 +65,10 @@ export function makeCliCoach({ bin = 'claude', prefixArgs = [], models = {}, env
     estimateFood: (text, athlete = '') => ask(FoodEstimate, FOOD_SYSTEM, buildFoodPrompt(text, athlete), models.food ?? 'sonnet'),
     weeklyReview: (week, program, settings, previousNote = null, today = null) =>
       ask(Review, REVIEW_SYSTEM, buildReviewPrompt(week, program, settings, previousNote, today), models.review ?? 'opus'),
+    chat(history, context = '') {
+      if (!history.some((m) => m.role === 'user')) return Promise.reject(new CoachError('empty', 'Nothing to reply to'));
+      const system = context ? `${CHAT_SYSTEM}\n\nCurrent data:\n${context}` : CHAT_SYSTEM;
+      return ask(ChatReply, system, chatTranscript(history), models.chat ?? 'sonnet');
+    },
   };
 }

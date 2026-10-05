@@ -17,7 +17,10 @@ if ('$schema' in schema) {
   process.exit(1);
 }
 const isFood = 'items' in schema.properties;
-const out = isFood
-  ? { items: [{ name: 'eggs', kcal: 140, proteinG: 12 }], kcal: 140, proteinG: 12, note: `model=${val('--model')}` }
-  : { summary: `ok for ${val('--model')}`, wins: [], flags: [], nextWeek: ['keep going'], nutrition: 'fine', proposals: [] };
+const isChat = Object.keys(schema.properties).join() === 'text';
+const out = isChat
+  ? { text: `reply from ${val('--model')}: ${prompt.includes('Athlete: ') ? 'heard you' : 'nothing heard'}` }
+  : isFood
+    ? { items: [{ name: 'eggs', kcal: 140, proteinG: 12 }], kcal: 140, proteinG: 12, note: `model=${val('--model')}` }
+    : { summary: `ok for ${val('--model')}`, wins: [], flags: [], nextWeek: ['keep going'], nutrition: 'fine', proposals: [] };
 console.log(JSON.stringify({ is_error: false, result: JSON.stringify(out), structured_output: out }));

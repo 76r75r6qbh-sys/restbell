@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildReviewPrompt, buildFoodPrompt, makeCoach, reviewToText } from '../src/coach.js';
+import { buildReviewPrompt, buildFoodPrompt, makeCoach, reviewToText, toChatTurns, buildChatContext } from '../src/coach.js';
 
 const week = {
   fromDate: '2026-10-05', toDate: '2026-10-11',
@@ -61,4 +61,38 @@ test('coach surfaces refusals as an error', async () => {
 test('reviewToText renders sections', () => {
   const t = reviewToText({ summary: 'Good week.', wins: ['a'], flags: [], nextWeek: ['b'], nutrition: 'More protein.' });
   assert.equal(t, 'Good week.\n\nWins\n- a\n\nNext week\n- b\n\nNutrition\nMore protein.');
+});
+
+test('chat turns start with the user; earlier coach messages move to the context', () => {
+  const { turns, lead } = toChatTurns([{ role: 'coach', text: 'review' }, { role: 'user', text: 'hi' }, { role: 'coach', text: 'hey' }, { role: 'user', text: 'q' }]);
+  assert.deepEqual(lead, ['review']);
+  assert.deepEqual(turns.map((t) => t.role), ['user', 'assistant', 'user']);
+});
+
+test('sdk chat sends history and context, returns the text', async () => {
+  const calls = [];
+  const client = { messages: { create: async (params) => { calls.push(params); return { stop_reason: 'end_turn', content: [{ type: 'thinking', thinking: '' }, { type: 'text', text: 'Rest tomorrow.' }] }; } } };
+  const r = await makeCoach({ client }).chat([{ role: 'coach', text: 'Weekly note' }, { role: 'user', text: 'Should I run?' }], 'Today is 2026-10-05.');
+  assert.equal(r.text, 'Rest tomorrow.');
+  assert.equal(calls[0].messages.length, 1);
+  assert.match(calls[0].system, /Current data:\nToday is 2026-10-05/);
+  assert.match(calls[0].system, /Your earlier messages:\nWeekly note/);
+  assert.equal(calls[0].output_config.effort, 'low');
+});
+
+test('sdk chat surfaces refusals', async () => {
+  const client = { messages: { create: async () => ({ stop_reason: 'refusal', content: [] }) } };
+  await assert.rejects(makeCoach({ client }).chat([{ role: 'user', text: 'x' }]), (e) => e.code === 'refused');
+});
+
+test('chat context summarizes today, the week and open proposals', () => {
+  const c = buildChatContext({
+    settings, program, today: '2026-10-05',
+    day: { title: 'Lift A', exercises: [{ name: 'Back squat', sets: 3, repMin: 5, repMax: 5, weight: 60 }] },
+    week: { ...week, workouts: [] }, proposals: [{ text: 'Raise calories to 2700' }], recovery: 'Recovery today: ok (60/100)',
+  });
+  assert.match(c, /Planned today: Lift A — Back squat 3×5 @ 60 kg/);
+  assert.match(c, /This week \(2026-10-05 to 2026-10-11\)/);
+  assert.match(c, /Open proposals: Raise calories to 2700/);
+  assert.match(c, /Recovery today: ok/);
 });

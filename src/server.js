@@ -5,10 +5,11 @@ import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
 import { openDb, makeRepo } from './db.js';
 import { ensureProgram } from './program.js';
-import { createApi, ensureDefaults, runWeeklyReview } from './api.js';
+import { createApi, ensureDefaults, runWeeklyReview, DEFAULT_SETTINGS } from './api.js';
 import { makeCoach } from './coach.js';
 import { makeCliCoach } from './coach-cli.js';
 import { makeAnnouncer } from './ha.js';
+import { makeNotifier } from './notify.js';
 import { makeAuth } from './auth.js';
 import { todayStr, weekdayOf, weekStartOf, TIME_ZONE } from './schedule.js';
 
@@ -85,7 +86,31 @@ export function makeReviewCron(ctx, { hour = 18, weekday = 7, log = console } = 
   };
 }
 
-export function buildContext({ dataDir, coach, announcer, auth, seedPath = join(ROOT, 'seed', 'program.json') }) {
+const amsterdamTime = new Intl.DateTimeFormat('en-GB', { timeZone: TIME_ZONE, hour: '2-digit', minute: '2-digit', hour12: false });
+
+const REMINDER_TEXT = [
+  'Nothing logged today yet. Meals, a weigh-in or a quick note all count.',
+  'Quiet day in Restbell. Log what you ate so the coach sees the full week.',
+];
+
+/** Once a day after settings.reminders.time (Amsterdam), push a reminder if nothing at all was logged that day. */
+export function makeReminderCron(ctx, { log = console } = {}) {
+  return async function tick(now = new Date()) {
+    if (!ctx.notifier?.configured) return false;
+    const r = ctx.repo.getSetting('reminders', DEFAULT_SETTINGS.reminders);
+    if (!r?.enabled) return false;
+    if (amsterdamTime.format(now) < r.time) return false;
+    const date = todayStr(now);
+    if (ctx.repo.loggedAnything(date)) return false;
+    if (!ctx.repo.claimNotification(`reminder:${date}`)) return false;
+    const body = REMINDER_TEXT[Number(date.slice(-2)) % REMINDER_TEXT.length];
+    const ok = await ctx.notifier.send({ title: 'Restbell', body, url: `${ctx.linkBase}food`, group: 'reminder' });
+    log.info?.(`[notify] daily reminder for ${date} ${ok ? 'sent' : 'failed'}`);
+    return ok;
+  };
+}
+
+export function buildContext({ dataDir, coach, announcer, auth, notifier = makeNotifier({}), linkBase = 'restbell://', seedPath = join(ROOT, 'seed', 'program.json') }) {
   const repo = makeRepo(openDb(join(dataDir, 'trainer.db')));
   ensureDefaults(repo);
   let program = ensureProgram(repo, seedPath);
@@ -94,6 +119,14 @@ export function buildContext({ dataDir, coach, announcer, auth, seedPath = join(
     coach,
     announcer,
     auth,
+    notifier,
+    linkBase,
+    // Coach replies run after the request returns; tests and shutdown wait on these.
+    background: new Set(),
+    chatPending: 0,
+    settle: async function settle() {
+      while (this.background.size) await Promise.allSettled([...this.background]);
+    },
     version: VERSION,
     program: () => program,
     saveProgram(json) {
@@ -111,10 +144,12 @@ export function startServer({
   coach = makeCoach({ client: null }),
   announcer = makeAnnouncer({}),
   auth = makeAuth({}),
+  notifier = makeNotifier({}),
+  linkBase = 'restbell://',
   cron = true,
   log = console,
 } = {}) {
-  const ctx = buildContext({ dataDir, coach, announcer, auth });
+  const ctx = buildContext({ dataDir, coach, announcer, auth, notifier, linkBase });
   const api = createApi(ctx);
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
@@ -133,8 +168,12 @@ export function startServer({
   });
   let timer = null;
   if (cron) {
-    const tick = makeReviewCron(ctx, { log });
-    timer = setInterval(() => tick().catch((e) => log.error(e)), 60_000);
+    const review = makeReviewCron(ctx, { log });
+    const reminder = makeReminderCron(ctx, { log });
+    timer = setInterval(() => {
+      review().catch((e) => log.error(e));
+      reminder().catch((e) => log.error(e));
+    }, 60_000);
     timer.unref();
   }
   return new Promise((resolvePromise, reject) => {
@@ -145,13 +184,12 @@ export function startServer({
         server,
         ctx,
         port: address.port,
-        close: () => new Promise((r) => {
+        close: async () => {
           if (timer) clearInterval(timer);
-          server.close(() => {
-            ctx.repo.close();
-            r();
-          });
-        }),
+          await ctx.settle();
+          await new Promise((r) => server.close(r));
+          ctx.repo.close();
+        },
       });
     });
   });
@@ -168,7 +206,7 @@ export async function pickCoach(env) {
     return makeCoach({ client: new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, maxRetries: 2, timeout: 120_000 }) });
   }
   if (env.CLAUDE_CODE_OAUTH_TOKEN || env.COACH_BACKEND === 'cli') {
-    return makeCliCoach({ bin: env.CLAUDE_BIN ?? 'claude', models: { food: env.COACH_MODEL_FOOD, review: env.COACH_MODEL_REVIEW }, env });
+    return makeCliCoach({ bin: env.CLAUDE_BIN ?? 'claude', models: { food: env.COACH_MODEL_FOOD, review: env.COACH_MODEL_REVIEW, chat: env.COACH_MODEL_CHAT }, env });
   }
   return makeCoach({ client: null });
 }
@@ -184,6 +222,8 @@ async function main() {
     coach,
     announcer: makeAnnouncer({ url: env.HA_URL, token: env.HA_TOKEN, ttsEntity: env.HA_TTS_ENTITY, mediaPlayer: env.HA_MEDIA_PLAYER }),
     auth: makeAuth({ password: env.APP_PASSWORD ?? '', secret: env.APP_SECRET }),
+    notifier: makeNotifier({ haUrl: env.HA_URL, haToken: env.HA_TOKEN, haService: env.HA_NOTIFY_SERVICE, ntfyUrl: env.NTFY_URL, ntfyToken: env.NTFY_TOKEN }),
+    linkBase: env.NOTIFY_LINK_BASE || 'restbell://',
   });
   console.log(`trainer ${VERSION} listening on :${port} (data: ${dataDir}, coach: ${coach.backend}, password: ${env.APP_PASSWORD ? 'on' : 'off'})`);
 }

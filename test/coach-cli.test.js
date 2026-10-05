@@ -34,3 +34,10 @@ test('cli schema has no draft reference and keeps the properties', () => {
   assert.equal('$schema' in schema, false);
   assert.deepEqual(Object.keys(schema.properties), ['items', 'kcal', 'proteinG', 'note']);
 });
+
+test('cli coach chats with a transcript and the chat model', async () => {
+  const chatty = makeCliCoach({ bin: process.execPath, prefixArgs: [fake], models: { chat: 'haiku' } });
+  const r = await chatty.chat([{ role: 'coach', text: 'Weekly review' }, { role: 'user', text: 'How was my week?' }], 'Today is 2026-10-05.');
+  assert.equal(r.text, 'reply from haiku: heard you');
+  await assert.rejects(chatty.chat([{ role: 'coach', text: 'only me' }]), (e) => e.code === 'empty');
+});

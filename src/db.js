@@ -45,7 +45,31 @@ CREATE TABLE IF NOT EXISTS proposals (
 CREATE TABLE IF NOT EXISTS coach_notes (
   id INTEGER PRIMARY KEY AUTOINCREMENT, week_start TEXT NOT NULL UNIQUE, text TEXT NOT NULL, json TEXT,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, role TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'chat', text TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), read_at TEXT);
+CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS sent_notifications (key TEXT PRIMARY KEY, sent_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+CREATE TABLE IF NOT EXISTS daily_metrics (
+  date TEXT NOT NULL, metric TEXT NOT NULL, value REAL NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  PRIMARY KEY (date, metric));
 `;
+
+// Columns added after the first release. CREATE TABLE IF NOT EXISTS leaves old databases alone, so add them here.
+const COLUMNS = {
+  workouts: { external_id: 'TEXT', elevation_m: 'REAL', effort: 'REAL', hr_recovery: 'INTEGER', details: 'TEXT' },
+  sessions: { workout_id: 'INTEGER' },
+  checkins: { body_fat_pct: 'REAL', source: "TEXT NOT NULL DEFAULT 'manual'" },
+};
+
+function migrate(db) {
+  for (const [table, cols] of Object.entries(COLUMNS)) {
+    const have = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name));
+    for (const [name, type] of Object.entries(cols)) if (!have.has(name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+  }
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS workouts_external ON workouts(external_id) WHERE external_id IS NOT NULL');
+}
 
 /** Open (and migrate) the SQLite database at path. ':memory:' is allowed. */
 export function openDb(path) {
@@ -53,6 +77,7 @@ export function openDb(path) {
   const db = new DatabaseSync(path);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
   db.exec(SCHEMA);
+  migrate(db);
   return db;
 }
 
@@ -67,6 +92,7 @@ const sessionRow = (r) => ({
   notes: r.notes,
   distanceKm: r.distance_km,
   durationMin: r.duration_min,
+  workoutId: r.workout_id ?? null,
 });
 
 const setRow = (r) => ({
@@ -81,13 +107,15 @@ const setRow = (r) => ({
   doneAt: r.done_at,
 });
 
-const checkinRow = (r) => ({ id: r.id, date: r.date, weightKg: r.weight_kg, notes: r.notes });
+const checkinRow = (r) => ({ id: r.id, date: r.date, weightKg: r.weight_kg, notes: r.notes, bodyFatPct: r.body_fat_pct ?? null, source: r.source ?? 'manual' });
 const foodRow = (r) => ({ id: r.id, date: r.date, text: r.text, kcal: r.kcal, proteinG: r.protein_g, createdAt: r.created_at });
 const workoutRow = (r) => ({
   id: r.id, source: r.source, date: r.date, start: r.start, end: r.end, type: r.type, durationMin: r.duration_min,
   distanceKm: r.distance_km, avgHr: r.avg_hr, maxHr: r.max_hr, kcal: r.kcal, analysis: r.analysis ? JSON.parse(r.analysis) : null,
-  samples: r.samples, createdAt: r.created_at,
+  samples: r.samples, createdAt: r.created_at, externalId: r.external_id ?? null, elevationM: r.elevation_m ?? null,
+  effort: r.effort ?? null, hrRecovery: r.hr_recovery ?? null, details: r.details ? JSON.parse(r.details) : null,
 });
+const chatRow = (r) => ({ id: r.id, role: r.role, kind: r.kind, text: r.text, createdAt: r.created_at, readAt: r.read_at });
 const favoriteRow = (r) => ({ id: r.id, name: r.name, text: r.text, kcal: r.kcal, proteinG: r.protein_g, createdAt: r.created_at });
 const proposalRow = (r) => ({ id: r.id, weekStart: r.week_start, proposal: JSON.parse(r.json), text: r.text, status: r.status, createdAt: r.created_at, resolvedAt: r.resolved_at });
 const noteRow = (r) => ({ id: r.id, weekStart: r.week_start, text: r.text, json: r.json ? JSON.parse(r.json) : null, createdAt: r.created_at });
@@ -114,6 +142,15 @@ export function makeRepo(db) {
       const out = {};
       for (const r of q('SELECT key, value FROM settings').all()) out[r.key] = JSON.parse(r.value);
       return out;
+    },
+
+    /** Internal server state (not user settings): sync timestamps and the like. */
+    getState(key, fallback = null) {
+      const r = q('SELECT value FROM state WHERE key = ?').get(key);
+      return r ? JSON.parse(r.value) : fallback;
+    },
+    setState(key, value) {
+      q('INSERT INTO state(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, JSON.stringify(value));
     },
 
     activeProgram() {
@@ -163,6 +200,11 @@ export function makeRepo(db) {
       const r = q('SELECT * FROM sessions WHERE date = ? AND finished_at IS NULL ORDER BY id DESC LIMIT 1').get(date);
       return r ? { ...sessionRow(r), sets: repo.sessionSets(r.id) } : null;
     },
+    /** Latest session on a date, open or finished. */
+    sessionOn(date) {
+      const r = q('SELECT * FROM sessions WHERE date = ? ORDER BY id DESC LIMIT 1').get(date);
+      return r ? { ...sessionRow(r), sets: repo.sessionSets(r.id) } : null;
+    },
     deleteSession(id) {
       q('DELETE FROM sessions WHERE id = ?').run(id);
     },
@@ -201,10 +243,15 @@ export function makeRepo(db) {
       return out;
     },
 
-    addCheckin({ date, weightKg, notes = null }) {
-      const r = q(`INSERT INTO checkins(date, weight_kg, notes) VALUES (?, ?, ?)
-         ON CONFLICT(date) DO UPDATE SET weight_kg = excluded.weight_kg, notes = excluded.notes RETURNING *`).get(date, weightKg, notes);
+    addCheckin({ date, weightKg, notes = null, bodyFatPct = null, source = 'manual' }) {
+      const r = q(`INSERT INTO checkins(date, weight_kg, notes, body_fat_pct, source) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(date) DO UPDATE SET weight_kg = excluded.weight_kg, notes = excluded.notes,
+           body_fat_pct = COALESCE(excluded.body_fat_pct, checkins.body_fat_pct), source = excluded.source RETURNING *`).get(date, weightKg, notes, bodyFatPct, source);
       return checkinRow(r);
+    },
+    checkinFor(date) {
+      const r = q('SELECT * FROM checkins WHERE date = ?').get(date);
+      return r ? checkinRow(r) : null;
     },
     checkins(limit = 52) {
       return q('SELECT * FROM checkins ORDER BY date DESC LIMIT ?').all(limit).map(checkinRow);
@@ -285,13 +332,52 @@ export function makeRepo(db) {
     },
 
     addWorkout(w) {
-      const r = q(`INSERT INTO workouts(source, date, start, end, type, duration_min, distance_km, avg_hr, max_hr, kcal, analysis, samples)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      const r = q(`INSERT INTO workouts(source, date, start, end, type, duration_min, distance_km, avg_hr, max_hr, kcal, analysis, samples,
+           external_id, elevation_m, effort, hr_recovery, details)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(start, type) DO UPDATE SET end = excluded.end, duration_min = excluded.duration_min, distance_km = excluded.distance_km,
-           avg_hr = excluded.avg_hr, max_hr = excluded.max_hr, kcal = excluded.kcal, analysis = excluded.analysis, samples = excluded.samples
+           avg_hr = excluded.avg_hr, max_hr = excluded.max_hr, kcal = excluded.kcal, analysis = excluded.analysis, samples = excluded.samples,
+           source = excluded.source, external_id = COALESCE(excluded.external_id, workouts.external_id),
+           elevation_m = COALESCE(excluded.elevation_m, workouts.elevation_m), effort = COALESCE(excluded.effort, workouts.effort),
+           hr_recovery = COALESCE(excluded.hr_recovery, workouts.hr_recovery), details = COALESCE(excluded.details, workouts.details)
          RETURNING *`).get(w.source ?? 'apple', w.date, w.start, w.end ?? null, w.type, w.durationMin ?? null, w.distanceKm ?? null,
-        w.avgHr ?? null, w.maxHr ?? null, w.kcal ?? null, w.analysis ? JSON.stringify(w.analysis) : null, w.samples ?? 0);
+        w.avgHr ?? null, w.maxHr ?? null, w.kcal ?? null, w.analysis ? JSON.stringify(w.analysis) : null, w.samples ?? 0,
+        w.externalId ?? null, w.elevationM ?? null, w.effort ?? null, w.hrRecovery ?? null, w.details ? JSON.stringify(w.details) : null);
       return workoutRow(r);
+    },
+    workout(id) {
+      const r = q('SELECT * FROM workouts WHERE id = ?').get(id);
+      return r ? workoutRow(r) : null;
+    },
+    deleteWorkoutByExternalId(externalId) {
+      const r = q('DELETE FROM workouts WHERE external_id = ? RETURNING id').get(externalId);
+      if (r) q('UPDATE sessions SET workout_id = NULL WHERE workout_id = ?').run(r.id);
+      return !!r;
+    },
+    /**
+     * Link a workout to the session it overlaps (started within 90 minutes of each other).
+     * Returns the linked session id or null.
+     */
+    linkWorkout(workoutId) {
+      const w = q('SELECT * FROM workouts WHERE id = ?').get(workoutId);
+      if (!w) return null;
+      const s = q(`SELECT id FROM sessions WHERE (workout_id IS NULL OR workout_id = ?)
+         AND ABS(julianday(started_at) - julianday(?)) * 1440 <= 90
+         ORDER BY ABS(julianday(started_at) - julianday(?)) LIMIT 1`).get(workoutId, w.start, w.start);
+      if (!s) return null;
+      q('UPDATE sessions SET workout_id = ? WHERE id = ?').run(workoutId, s.id);
+      return s.id;
+    },
+    /** Link the closest unlinked workout to a session (used when a session finishes after the Watch already synced). */
+    linkSession(sessionId) {
+      const s = q('SELECT * FROM sessions WHERE id = ?').get(sessionId);
+      if (!s) return null;
+      const w = q(`SELECT id FROM workouts WHERE id NOT IN (SELECT workout_id FROM sessions WHERE workout_id IS NOT NULL)
+         AND ABS(julianday(start) - julianday(?)) * 1440 <= 90
+         ORDER BY ABS(julianday(start) - julianday(?)) LIMIT 1`).get(s.started_at, s.started_at);
+      if (!w) return null;
+      q('UPDATE sessions SET workout_id = ? WHERE id = ?').run(w.id, sessionId);
+      return w.id;
     },
     workouts(limit = 30) {
       return q('SELECT * FROM workouts ORDER BY start DESC LIMIT ?').all(limit).map(workoutRow);
@@ -300,11 +386,66 @@ export function makeRepo(db) {
       return q('SELECT * FROM workouts WHERE date BETWEEN ? AND ? ORDER BY start').all(fromDate, toDate).map(workoutRow);
     },
 
+    upsertMetrics(date, metrics) {
+      const stmt = q(`INSERT INTO daily_metrics(date, metric, value) VALUES (?, ?, ?)
+         ON CONFLICT(date, metric) DO UPDATE SET value = excluded.value, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')`);
+      let n = 0;
+      for (const [metric, value] of Object.entries(metrics)) {
+        stmt.run(date, metric, value);
+        n += 1;
+      }
+      return n;
+    },
+    /** { 'YYYY-MM-DD': { metric: value } } for a date range, optionally one metric. */
+    metrics(fromDate, toDate, metric = null) {
+      const rows = metric
+        ? q('SELECT date, metric, value FROM daily_metrics WHERE date BETWEEN ? AND ? AND metric = ? ORDER BY date').all(fromDate, toDate, metric)
+        : q('SELECT date, metric, value FROM daily_metrics WHERE date BETWEEN ? AND ? ORDER BY date').all(fromDate, toDate);
+      const out = {};
+      for (const r of rows) (out[r.date] ??= {})[r.metric] = r.value;
+      return out;
+    },
+
+    addChat({ role, kind = 'chat', text }) {
+      // Your own messages count as read; coach messages wait for you.
+      const r = q(`INSERT INTO chat_messages(role, kind, text, read_at) VALUES (?, ?, ?, CASE WHEN ? = 'user' THEN strftime('%Y-%m-%dT%H:%M:%fZ','now') END) RETURNING *`)
+        .get(role, kind, text, role);
+      return chatRow(r);
+    },
+    chatSince(afterId = 0, limit = 200) {
+      return q('SELECT * FROM chat_messages WHERE id > ? ORDER BY id LIMIT ?').all(afterId, limit).map(chatRow);
+    },
+    /** The latest n messages, oldest first. */
+    chatTail(n = 30) {
+      return q('SELECT * FROM (SELECT * FROM chat_messages ORDER BY id DESC LIMIT ?) ORDER BY id').all(n).map(chatRow);
+    },
+    markChatRead(upToId = null) {
+      const sql = "UPDATE chat_messages SET read_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE read_at IS NULL";
+      return upToId == null ? q(sql).run().changes : q(`${sql} AND id <= ?`).run(upToId).changes;
+    },
+    unreadChatCount() {
+      return q('SELECT COUNT(*) AS n FROM chat_messages WHERE read_at IS NULL').get().n;
+    },
+
+    /** Record a one-off notification key; returns false when it was already sent. */
+    claimNotification(key) {
+      return q('INSERT INTO sent_notifications(key) VALUES (?) ON CONFLICT(key) DO NOTHING').run(key).changes === 1;
+    },
+
+    /** Did anything get logged on this date? Food, a session, a weigh-in or a workout. */
+    loggedAnything(date) {
+      return !!q(`SELECT 1 FROM food WHERE date = ?1 UNION ALL SELECT 1 FROM sessions WHERE date = ?1
+         UNION ALL SELECT 1 FROM checkins WHERE date = ?1 UNION ALL SELECT 1 FROM workouts WHERE date = ?1 LIMIT 1`).get(date);
+    },
+
     weekData(fromDate, toDate) {
       const sessions = q('SELECT * FROM sessions WHERE date BETWEEN ? AND ? AND finished_at IS NOT NULL ORDER BY date').all(fromDate, toDate)
         .map((r) => ({ ...sessionRow(r), sets: repo.sessionSets(r.id) }));
       const checkins = q('SELECT * FROM checkins WHERE date BETWEEN ? AND ? ORDER BY date').all(fromDate, toDate).map(checkinRow);
-      return { fromDate, toDate, sessions, checkins, foodDays: repo.foodDays(fromDate, toDate), workouts: repo.workoutsBetween(fromDate, toDate) };
+      return {
+        fromDate, toDate, sessions, checkins, foodDays: repo.foodDays(fromDate, toDate), workouts: repo.workoutsBetween(fromDate, toDate),
+        metrics: repo.metrics(fromDate, toDate),
+      };
     },
 
     exportAll() {
@@ -321,6 +462,8 @@ export function makeRepo(db) {
         workouts: q('SELECT * FROM workouts ORDER BY start').all().map(workoutRow),
         coachNotes: q('SELECT * FROM coach_notes ORDER BY week_start').all().map(noteRow),
         proposals: q('SELECT * FROM proposals ORDER BY id').all().map(proposalRow),
+        chat: q('SELECT * FROM chat_messages ORDER BY id').all().map(chatRow),
+        dailyMetrics: q('SELECT date, metric, value FROM daily_metrics ORDER BY date, metric').all().map((r) => ({ ...r })),
       };
     },
   };

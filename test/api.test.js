@@ -161,7 +161,7 @@ test('password protects the api', async () => {
 
 test('review cron only fires on Sunday evening once per week', async () => {
   const notes = new Set();
-  const ctx = { coach: fakeCoach, repo: { coachNoteFor: (w) => (notes.has(w) ? { createdAt: '2026-10-11T16:31:00.000Z' } : null), weekData: () => ({ sessions: [], checkins: [], foodDays: [] }), coachNotes: () => [], allSettings: () => ({}), addCoachNote: ({ weekStart }) => { notes.add(weekStart); return {}; }, replaceProposals: () => {}, openProposals: () => [] }, program: () => ({ name: 'p', days: [] }) };
+  const ctx = { coach: fakeCoach, repo: { coachNoteFor: (w) => (notes.has(w) ? { createdAt: '2026-10-11T16:31:00.000Z' } : null), weekData: () => ({ sessions: [], checkins: [], foodDays: [] }), coachNotes: () => [], allSettings: () => ({}), addCoachNote: ({ weekStart }) => { notes.add(weekStart); return {}; }, replaceProposals: () => {}, openProposals: () => [], metrics: () => ({}), getState: () => null, addChat: () => ({}) }, program: () => ({ name: 'p', days: [] }) };
   const tick = makeReviewCron(ctx, { log: {} });
   assert.equal(await tick(new Date('2026-10-10T17:00:00Z')), false); // Saturday
   assert.equal(await tick(new Date('2026-10-11T10:00:00Z')), false); // Sunday morning
@@ -172,7 +172,7 @@ test('review cron only fires on Sunday evening once per week', async () => {
 test('review cron re-runs when the week only has a note written before Sunday', async () => {
   let created = '2026-10-14T10:00:00.000Z'; // a manual review run on Wednesday
   let runs = 0;
-  const ctx = { coach: fakeCoach, repo: { coachNoteFor: () => ({ createdAt: created }), weekData: () => ({ sessions: [], checkins: [], foodDays: [] }), coachNotes: () => [], allSettings: () => ({}), addCoachNote: () => { runs += 1; created = '2026-10-18T16:05:00.000Z'; return {}; }, replaceProposals: () => {}, openProposals: () => [] }, program: () => ({ name: 'p', days: [] }) };
+  const ctx = { coach: fakeCoach, repo: { coachNoteFor: () => ({ createdAt: created }), weekData: () => ({ sessions: [], checkins: [], foodDays: [] }), coachNotes: () => [], allSettings: () => ({}), addCoachNote: () => { runs += 1; created = '2026-10-18T16:05:00.000Z'; return {}; }, replaceProposals: () => {}, openProposals: () => [], metrics: () => ({}), getState: () => null, addChat: () => ({}) }, program: () => ({ name: 'p', days: [] }) };
   const tick = makeReviewCron(ctx, { log: {} });
   assert.equal(await tick(new Date('2026-10-18T16:05:00Z')), true); // Sunday 18:05 Amsterdam: note is stale, run again
   assert.equal(await tick(new Date('2026-10-18T16:06:00Z')), false); // now written on Sunday

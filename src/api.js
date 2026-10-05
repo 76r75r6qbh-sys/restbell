@@ -1,6 +1,9 @@
 import { plannedDay, todayStr, weekStartOf, addDays } from './schedule.js';
 import { dayByKey, targetsFor, applyProgression } from './program.js';
-import { reviewToText, CoachError } from './coach.js';
+import { reviewToText, CoachError, buildChatContext, fmtSession } from './coach.js';
+import { cleanMetrics, energyBalance } from './metrics.js';
+import { recoveryFor, recoveryText } from './recovery.js';
+import { preview } from './notify.js';
 import { analyzeSamples, intensityFromAvg } from './hr.js';
 import { sanitizeProposals, describeProposal, applyProposal } from './proposals.js';
 import { computeStats } from './stats.js';
@@ -12,7 +15,12 @@ export const DEFAULT_SETTINGS = {
   holiday: null,
   maxHr: 191,
   athlete: '',
+  reminders: { enabled: true, time: '20:30' },
+  debrief: true,
 };
+
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+const HEALTH_STALE_MS = 24 * 3600_000;
 
 export function ensureDefaults(repo) {
   for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) {
@@ -132,20 +140,153 @@ export function prepareWorkout(w, maxHrSetting) {
     kcal: w.kcal != null && Number.isFinite(Number(w.kcal)) ? Number(w.kcal) : null,
     analysis: analysis ?? { minutesPerZone: null, intensity: intensityFromAvg(avgHr, maxHrSetting), avgHr, maxHr, samples: 0 },
     samples: samples.length,
+    externalId: w.externalId != null ? String(w.externalId).slice(0, 80) : null,
+    elevationM: finiteOrNull(w.elevationM),
+    effort: finiteOrNull(w.effort),
+    hrRecovery: w.hrRecovery != null && Number.isFinite(Number(w.hrRecovery)) ? Math.round(Number(w.hrRecovery)) : null,
+    details: cleanDetails(w.details),
   };
+}
+
+const finiteOrNull = (v) => (v != null && v !== '' && Number.isFinite(Number(v)) ? Number(v) : null);
+
+/** Keep only the known numeric workout details, and splits as [{ km, sec }]. */
+function cleanDetails(d) {
+  if (!d || typeof d !== 'object') return null;
+  const out = {};
+  for (const k of ['cadenceSpm', 'powerW', 'strideM', 'groundContactMs', 'verticalOscillationCm', 'speedKmh', 'totalKcal', 'stepCount']) {
+    const v = finiteOrNull(d[k]);
+    if (v != null) out[k] = v;
+  }
+  if (Array.isArray(d.splits)) {
+    out.splits = d.splits.slice(0, 200).map((x) => ({ km: finiteOrNull(x?.km) ?? 1, sec: finiteOrNull(x?.sec) })).filter((x) => x.sec != null && x.sec > 0);
+  }
+  return Object.keys(out).length ? out : null;
 }
 
 /** Run the weekly review for the week starting on weekStart (a Monday). */
 export async function runWeeklyReview(ctx, weekStart) {
   const { repo, coach } = ctx;
-  const week = repo.weekData(weekStart, addDays(weekStart, 6));
+  const week = weekWithContext(repo, weekStart);
   const previous = repo.coachNotes(1)[0];
   const review = await coach.weeklyReview(week, ctx.program(), repo.allSettings(), previous?.text ?? null, todayStr());
   const note = repo.addCoachNote({ weekStart, text: reviewToText(review), json: review });
   const program = ctx.program();
   const proposals = sanitizeProposals(review.proposals, program).map((proposal) => ({ proposal, text: describeProposal(proposal, program) }));
   repo.replaceProposals(weekStart, proposals);
-  return { ...note, proposals: repo.openProposals().filter((p) => p.weekStart === weekStart) };
+  const open = repo.openProposals().filter((p) => p.weekStart === weekStart);
+  // The review also lands in the chat, so it notifies like any other coach message.
+  const chatText = `${review.summary}${open.length ? `\n\nI proposed ${open.length} change${open.length > 1 ? 's' : ''} to your plan: have a look in the weekly note.` : ''}`;
+  await postCoachMessage(ctx, { kind: 'review', text: chatText, title: 'Your weekly review is in' });
+  return { ...note, proposals: open };
+}
+
+/** weekData plus last week's metrics, today's recovery and a stale-sync warning, for coach prompts. */
+export function weekWithContext(repo, weekStart, today = todayStr()) {
+  const week = repo.weekData(weekStart, addDays(weekStart, 6));
+  week.previousMetrics = repo.metrics(addDays(weekStart, -7), addDays(weekStart, -1));
+  week.recovery = recoveryText(recoveryFor(repo.metrics(addDays(today, -28), today), today));
+  week.healthSyncStale = healthStaleText(repo);
+  return week;
+}
+
+export function healthStatus(repo, now = Date.now()) {
+  const last = repo.getState('lastHealthSync', null);
+  return { lastSync: last, stale: !!last && now - Date.parse(last) > HEALTH_STALE_MS };
+}
+
+function healthStaleText(repo) {
+  const h = healthStatus(repo);
+  return h.stale ? `Note: Apple Health has not synced since ${h.lastSync.slice(0, 16).replace('T', ' ')} UTC, so recent Watch data is missing — that is not missed training.` : null;
+}
+
+/** Store a coach message and push it to the phone. */
+export async function postCoachMessage(ctx, { kind = 'chat', text, title = 'Coach' }) {
+  const msg = ctx.repo.addChat({ role: 'coach', kind, text });
+  await ctx.notifier?.send({ title, body: preview(text), url: `${ctx.linkBase ?? 'restbell://'}chat`, group: 'coach' });
+  return msg;
+}
+
+function chatContext(ctx, date = todayStr()) {
+  const { repo } = ctx;
+  const settings = repo.allSettings();
+  const program = ctx.program();
+  const openSession = repo.openSession(date);
+  const day = openSession ? dayByKey(program, openSession.dayKey) : plannedDay(program, date, settings);
+  return buildChatContext({
+    settings,
+    program,
+    today: date,
+    day: day ? { ...day, exercises: targetsFor(repo, day) } : null,
+    openSession,
+    week: weekWithContext(repo, weekStartOf(date), date),
+    latestNote: repo.coachNotes(1)[0] ?? null,
+    proposals: repo.openProposals(),
+  });
+}
+
+/** Run a coach reply in the background; failures become a visible coach message instead of a silent gap. */
+function replyInBackground(ctx, history, { kind = 'chat', title = 'Coach' } = {}) {
+  ctx.chatPending = (ctx.chatPending ?? 0) + 1;
+  const job = (async () => {
+    try {
+      const { text } = await ctx.coach.chat(history, chatContext(ctx));
+      await postCoachMessage(ctx, { kind, text, title });
+    } catch (e) {
+      if (kind === 'chat') ctx.repo.addChat({ role: 'coach', kind: 'error', text: `I couldn't answer just now (${coachHttpError(e).message}). Try again in a minute.` });
+      else console.error(`[coach] ${kind} failed: ${e.message}`);
+    } finally {
+      ctx.chatPending -= 1;
+    }
+  })();
+  ctx.background?.add(job);
+  job.finally(() => ctx.background?.delete(job));
+  return job;
+}
+
+/** Everything the widgets and the app's Today screen need, in one call. */
+export function buildSummary(ctx, date) {
+  const { repo } = ctx;
+  const settings = settingsWithDefaults(repo);
+  const program = ctx.program();
+  const food = repo.foodForDate(date);
+  const session = repo.sessionOn(date);
+  const planned = plannedDay(program, date, settings);
+  const day = session ? dayByKey(program, session.dayKey) ?? planned : planned;
+  const setsTotal = day?.exercises?.reduce((a, e) => a + e.sets, 0) ?? 0;
+  const status = session ? (session.finishedAt ? 'done' : 'active') : day ? 'planned' : 'rest';
+  const stats = computeStats({ today: date, program, settings, sessions: repo.history(400), checkins: repo.checkins(52) });
+  const metrics = repo.metrics(addDays(date, -28), date);
+  const todayMetrics = metrics[date] ?? {};
+  const recovery = recoveryFor(metrics, date);
+  const lastWorkout = repo.workouts(1)[0] ?? null;
+  const balance = energyBalance({ [date]: todayMetrics }, [{ date, kcal: food.totals.kcal }]);
+  return {
+    date,
+    food: { kcal: Math.round(food.totals.kcal), proteinG: Math.round(food.totals.proteinG), entries: food.entries.length, targets: settings.targets },
+    session: day ? {
+      status, dayKey: day.key, title: day.title, type: day.type, time: day.time ?? null,
+      sessionId: session?.id ?? null, setsDone: session?.sets.length ?? 0, setsTotal,
+    } : { status: 'rest' },
+    week: stats.week,
+    streak: stats.streak,
+    bodyweight: stats.bodyweight,
+    unreadChat: repo.unreadChatCount(),
+    lastWorkout: lastWorkout && {
+      id: lastWorkout.id, date: lastWorkout.date, type: lastWorkout.type, durationMin: lastWorkout.durationMin, distanceKm: lastWorkout.distanceKm,
+      kcal: lastWorkout.kcal, avgHr: lastWorkout.avgHr, intensity: lastWorkout.analysis?.intensity ?? null, minutesPerZone: lastWorkout.analysis?.minutesPerZone ?? null, effort: lastWorkout.effort,
+    },
+    activity: {
+      moveKcal: todayMetrics.active_kcal ?? null, moveGoal: todayMetrics.move_goal_kcal ?? null,
+      exerciseMin: todayMetrics.exercise_min ?? null, exerciseGoal: todayMetrics.exercise_goal_min ?? null,
+      standHours: todayMetrics.stand_hours ?? null, standGoal: todayMetrics.stand_goal_hours ?? null,
+      steps: todayMetrics.steps ?? null, sleepMin: todayMetrics.sleep_min ?? null,
+    },
+    energy: balance.days[0] ?? null,
+    recovery: recovery.level ? { level: recovery.level, score: recovery.score, reasons: recovery.reasons } : null,
+    health: healthStatus(repo),
+    favorites: repo.favorites().slice(0, 4).map((f) => ({ id: f.id, name: f.name, kcal: f.kcal, proteinG: f.proteinG })),
+  };
 }
 
 /**
@@ -156,8 +297,9 @@ export function createApi(ctx) {
   const { repo, auth } = ctx;
 
   const routes = [
-    ['GET', /^\/api\/health$/, () => ({ ok: true, version: ctx.version, coach: ctx.coach.enabled, ha: ctx.announcer.configured, auth: auth.enabled })],
-    ['GET', /^\/api\/auth$/, (req) => ({ enabled: auth.enabled, ok: auth.verify(req.headers.cookie) })],
+    ['GET', /^\/api\/health$/, () => ({ ok: true, version: ctx.version, coach: ctx.coach.enabled, ha: ctx.announcer.configured, auth: auth.enabled, notify: ctx.notifier?.channels ?? [] })],
+    ['GET', /^\/api\/summary$/, (req, res, m, body, url) => buildSummary(ctx, dateOf(url.searchParams.get('date')))],
+    ['GET', /^\/api\/auth$/, (req) => ({ enabled: auth.enabled, ok: auth.verifyRequest(req) })],
     ['POST', /^\/api\/login$/, async (req, res, m, body) => {
       // Behind the Cloudflare tunnel every request comes from cloudflared, which passes the visitor's address along.
       const client = req.headers['cf-connecting-ip'] ?? req.socket.remoteAddress;
@@ -168,7 +310,8 @@ export function createApi(ctx) {
       }
       if (!result.ok) throw new HttpError(401, 'wrong password');
       res.setHeader('Set-Cookie', auth.setCookieHeader(result.cookie, { secure: req.headers['x-forwarded-proto'] === 'https' }));
-      return { ok: true };
+      // The iOS app stores this token in the Keychain and sends it as a bearer header.
+      return { ok: true, token: result.cookie };
     }],
 
     ['GET', /^\/api\/today$/, (req, res, m, body, url) => {
@@ -243,7 +386,13 @@ export function createApi(ctx) {
         durationMin: num(body.durationMin, 'durationMin', { allowNull: true, min: 0, max: 1440 }),
       });
       const changes = applyProgression(repo, ctx.program(), id);
-      return { session: { ...session, sets: repo.sessionSets(id) }, changes };
+      repo.linkSession(id);
+      const finished = repo.session(id);
+      if (ctx.coach.enabled && repo.getSetting('debrief', DEFAULT_SETTINGS.debrief)) {
+        const ask = `I just finished this session:\n${fmtSession(finished)}${changes.some((c) => c.weight !== c.from) ? `\nThe app's progression rules changed: ${changes.filter((c) => c.weight !== c.from).map((c) => `${c.name} ${c.from ?? '?'} → ${c.weight} kg`).join(', ')}` : ''}\nGive me a short debrief: 2 to 3 sentences, what went well and one thing for next time.`;
+        replyInBackground(ctx, [...repo.chatTail(10), { role: 'user', text: ask }], { kind: 'debrief', title: 'Session debrief' });
+      }
+      return { session: finished, changes };
     }],
 
     ['GET', /^\/api\/history$/, (req, res, m, body, url) => {
@@ -257,15 +406,62 @@ export function createApi(ctx) {
       if (!list.length) throw new HttpError(400, 'no workouts in body');
       const maxHr = repo.getSetting('maxHr', DEFAULT_SETTINGS.maxHr);
       const imported = list.map((w) => repo.addWorkout(prepareWorkout(w, maxHr)));
+      for (const w of imported) repo.linkWorkout(w.id);
       return { imported: imported.length, workouts: imported };
+    }],
+    ['DELETE', /^\/api\/workouts\/external\/([^/]+)$/, (req, res, m) => ({ deleted: repo.deleteWorkoutByExternalId(decodeURIComponent(m[1])) })],
+    ['GET', /^\/api\/workouts\/(\d+)$/, (req, res, m) => {
+      const w = repo.workout(Number(m[1]));
+      if (!w) throw new HttpError(404, 'workout not found');
+      return w;
+    }],
+
+    ['GET', /^\/api\/metrics$/, (req, res, m, body, url) => {
+      const to = dateOf(url.searchParams.get('to'));
+      const from = url.searchParams.get('from') ? dateOf(url.searchParams.get('from')) : addDays(to, -6);
+      if (from > to) throw new HttpError(400, 'from is after to');
+      if (Date.parse(to) - Date.parse(from) > 400 * 86400000) throw new HttpError(400, 'range too long');
+      const metric = url.searchParams.get('metric');
+      return { from, to, days: repo.metrics(from, to, metric || null), health: healthStatus(repo) };
+    }],
+    // Body: { days: [{ date, metrics: { steps: 9120, ... } }] } or a single { date, metrics }.
+    ['PUT', /^\/api\/metrics$/, (req, res, m, body) => {
+      const days = Array.isArray(body.days) ? body.days : body.date ? [body] : [];
+      if (!days.length) throw new HttpError(400, 'no days in body');
+      if (days.length > 400) throw new HttpError(400, 'too many days');
+      const clean = days.map((d) => {
+        if (!DATE_RE.test(d?.date ?? '')) throw new HttpError(400, 'each day needs a YYYY-MM-DD date');
+        try {
+          return { date: d.date, metrics: cleanMetrics(d.metrics) };
+        } catch (e) {
+          throw new HttpError(400, `${d.date}: ${e.message}`);
+        }
+      });
+      let values = 0;
+      for (const d of clean) values += repo.upsertMetrics(d.date, d.metrics);
+      repo.setState('lastHealthSync', new Date().toISOString());
+      return { days: clean.length, values, health: healthStatus(repo) };
+    }],
+    ['GET', /^\/api\/recovery$/, (req, res, m, body, url) => {
+      const date = dateOf(url.searchParams.get('date'));
+      return { date, ...recoveryFor(repo.metrics(addDays(date, -28), date), date) };
     }],
 
     ['GET', /^\/api\/checkins$/, () => ({ checkins: repo.checkins(104) })],
-    ['POST', /^\/api\/checkins$/, (req, res, m, body) => repo.addCheckin({
-      date: dateOf(body.date),
-      weightKg: num(body.weightKg, 'weightKg', { min: 20, max: 300 }),
-      notes: body.notes ? String(body.notes).slice(0, 500) : null,
-    })],
+    ['POST', /^\/api\/checkins$/, (req, res, m, body) => {
+      const date = dateOf(body.date);
+      const source = body.source === 'healthkit' ? 'healthkit' : 'manual';
+      // A weigh-in typed by hand wins over the scale reading synced from Apple Health.
+      const existing = repo.checkinFor(date);
+      if (source === 'healthkit' && existing && existing.source === 'manual') return { ...existing, skipped: true };
+      return repo.addCheckin({
+        date,
+        weightKg: num(body.weightKg, 'weightKg', { min: 20, max: 300 }),
+        notes: body.notes ? String(body.notes).slice(0, 500) : null,
+        bodyFatPct: num(body.bodyFatPct, 'bodyFatPct', { allowNull: true, min: 2, max: 70 }),
+        source,
+      });
+    }],
 
     ['GET', /^\/api\/food$/, (req, res, m, body, url) => {
       const date = dateOf(url.searchParams.get('date'));
@@ -306,6 +502,26 @@ export function createApi(ctx) {
     }],
 
     ['GET', /^\/api\/coach$/, () => ({ notes: repo.coachNotes(12), proposals: repo.openProposals(), enabled: ctx.coach.enabled })],
+
+    ['GET', /^\/api\/chat$/, (req, res, m, body, url) => {
+      const after = num(url.searchParams.get('after') ?? 0, 'after', { min: 0 });
+      const messages = after ? repo.chatSince(after) : repo.chatTail(num(url.searchParams.get('limit') ?? 50, 'limit', { min: 1, max: 500 }));
+      return { messages, pending: (ctx.chatPending ?? 0) > 0, unread: repo.unreadChatCount(), enabled: ctx.coach.enabled };
+    }],
+    ['POST', /^\/api\/chat$/, (req, res, m, body) => {
+      const text = String(body.text ?? '').trim().slice(0, 4000);
+      if (!text) throw new HttpError(400, 'text is required');
+      if (!ctx.coach.enabled) throw new HttpError(503, 'The coach is off: no Claude credentials on the server');
+      const message = repo.addChat({ role: 'user', text });
+      // Opening the chat to write counts as reading what the coach said before.
+      repo.markChatRead(message.id);
+      replyInBackground(ctx, repo.chatTail(30));
+      return { message, pending: true };
+    }],
+    ['POST', /^\/api\/chat\/read$/, (req, res, m, body) => ({
+      marked: repo.markChatRead(body.upToId != null ? num(body.upToId, 'upToId', { min: 0 }) : null),
+      unread: repo.unreadChatCount(),
+    })],
     ['POST', /^\/api\/coach\/proposals\/(\d+)\/(apply|dismiss)$/, (req, res, m) => {
       const row = repo.proposal(Number(m[1]));
       if (!row) throw new HttpError(404, 'proposal not found');
@@ -335,6 +551,11 @@ export function createApi(ctx) {
           repo.setSetting(k, String(v ?? '').slice(0, 1500));
         } else if (k === 'maxHr') {
           repo.setSetting(k, num(v, 'maxHr', { min: 120, max: 230 }));
+        } else if (k === 'reminders') {
+          if (!TIME_RE.test(v?.time ?? '')) throw new HttpError(400, 'reminders.time must be HH:MM');
+          repo.setSetting(k, { enabled: !!v.enabled, time: v.time });
+        } else if (k === 'debrief') {
+          repo.setSetting(k, !!v);
         } else if (k === 'targets') {
           repo.setSetting(k, { kcal: num(v?.kcal, 'kcal', { min: 800, max: 8000 }), proteinG: num(v?.proteinG, 'proteinG', { min: 20, max: 400 }) });
         } else {
@@ -373,7 +594,7 @@ export function createApi(ctx) {
       res.end(json);
     };
     try {
-      if (!PUBLIC.has(url.pathname) && !auth.verify(req.headers.cookie)) throw new HttpError(401, 'login required');
+      if (!PUBLIC.has(url.pathname) && !auth.verifyRequest(req)) throw new HttpError(401, 'login required');
       for (const [method, re, handler] of routes) {
         const m = re.exec(url.pathname);
         if (!m || method !== req.method) continue;

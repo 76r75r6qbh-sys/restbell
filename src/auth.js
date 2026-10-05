@@ -34,6 +34,18 @@ export function makeAuth({ password = '', secret = randomBytes(32).toString('hex
     setCookieHeader(value, { secure = false } = {}) {
       return `${COOKIE_NAME}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 365}${secure ? '; Secure' : ''}`;
     },
+    /** The app sends the same token as a bearer header instead of a cookie. */
+    verifyBearer(authorizationHeader) {
+      if (!enabled) return true;
+      const m = /^Bearer\s+([a-f0-9]+)$/i.exec(authorizationHeader ?? '');
+      if (!m) return false;
+      const a = Buffer.from(m[1]);
+      const b = Buffer.from(token);
+      return a.length === b.length && timingSafeEqual(a, b);
+    },
+    verifyRequest(req) {
+      return this.verify(req.headers.cookie) || this.verifyBearer(req.headers.authorization);
+    },
     verify(cookieHeader) {
       if (!enabled) return true;
       const m = /(?:^|;\s*)trainer_auth=([a-f0-9]+)/.exec(cookieHeader ?? '');

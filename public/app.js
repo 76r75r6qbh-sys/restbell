@@ -32,6 +32,7 @@
     history: null,
     checkins: null,
     coach: null,
+    chat: null,          // { messages, pending, enabled }
     queue: JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]'),
     timer: null,         // { endsAt, next, total }
     doneSummary: null,
@@ -872,13 +873,71 @@
     setTimeout(() => name.select(), 50);
   }
 
+  // ----- Coach chat -----
+  let chatPoll = null;
+  async function loadChat() {
+    S.chat = await api('GET', '/api/chat?limit=50');
+    if (S.chat.unread) api('POST', '/api/chat/read', {}).catch(() => {});
+  }
+  // While the coach is writing, poll for the reply and re-render only the thread.
+  function pollChat() {
+    clearTimeout(chatPoll);
+    if (!S.chat?.pending || S.tab !== 'coach') return;
+    chatPoll = setTimeout(async () => {
+      const last = S.chat.messages.at(-1)?.id ?? 0;
+      try {
+        const next = await api('GET', `/api/chat?after=${last}`);
+        S.chat.messages.push(...next.messages);
+        S.chat.pending = next.pending;
+        if (next.unread) api('POST', '/api/chat/read', {}).catch(() => {});
+        const thread = $('#chat-thread');
+        if (thread) thread.replaceWith(renderThread());
+      } catch { /* keep polling */ }
+      pollChat();
+    }, 1500);
+  }
+  function renderThread() {
+    const msgs = S.chat.messages;
+    const thread = el('div', { id: 'chat-thread', class: 'chat-thread', role: 'log', 'aria-live': 'polite' },
+      msgs.length ? null : el('div', { class: 'empty small' }, 'Ask about your training, food or recovery. The coach sees your logs and Watch data.'),
+      msgs.map((m) => el('div', { class: `bubble ${m.role === 'user' ? 'me' : 'coach'}${m.kind === 'error' ? ' error' : ''}` },
+        m.kind !== 'chat' && m.role === 'coach' ? el('div', { class: 'bubble-kind' }, ({ review: 'Weekly review', debrief: 'Session debrief', error: 'Not delivered' })[m.kind] ?? '') : null,
+        el('div', { class: 'bubble-text' }, m.text))),
+      S.chat.pending ? el('div', { class: 'bubble coach typing', 'aria-label': 'Coach is typing' }, el('span'), el('span'), el('span')) : null,
+    );
+    requestAnimationFrame(() => { thread.scrollTop = thread.scrollHeight; });
+    return thread;
+  }
+  function renderChat() {
+    const input = el('textarea', { id: 'chat-input', rows: '1', placeholder: S.chat.enabled ? 'Message your coach' : 'The coach is off on the server', disabled: !S.chat.enabled });
+    const send = el('button', { class: 'btn primary', disabled: !S.chat.enabled, onclick: async () => {
+      const text = input.value.trim();
+      if (!text) return;
+      send.disabled = true;
+      try {
+        const r = await api('POST', '/api/chat', { text });
+        S.chat.messages.push(r.message);
+        S.chat.pending = true;
+        input.value = '';
+        $('#chat-thread').replaceWith(renderThread());
+        pollChat();
+      } catch (e) { toast(e.message); }
+      send.disabled = false;
+      input.focus();
+    } }, 'Send');
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send.click(); } });
+    pollChat();
+    return el('div', { class: 'card' }, el('div', { class: 'eyebrow' }, 'Chat'), renderThread(), el('div', { class: 'chat-compose' }, input, send));
+  }
+
   // ----- Coach -----
   async function renderCoach(view) {
-    if (!S.coach) {
+    if (!S.coach || !S.chat) {
       view.append(el('div', { class: 'empty' }, 'Loading…'));
-      S.coach = await api('GET', '/api/coach');
+      [S.coach] = await Promise.all([api('GET', '/api/coach'), loadChat()]);
       return render();
     }
+    view.append(renderChat());
     const btn = el('button', { class: 'btn wide', disabled: !S.coach.enabled, onclick: async () => {
       btn.disabled = true;
       btn.textContent = 'Reviewing… this takes a minute';
@@ -973,7 +1032,7 @@
     S.tab = b.dataset.tab;
     if (S.tab === 'history') S.history = null;
     if (S.tab === 'checkin') S.checkins = null;
-    if (S.tab === 'coach') S.coach = null;
+    if (S.tab === 'coach') { S.coach = null; S.chat = null; }
     if (S.tab === 'food') S.foodDay = null;
     render();
     window.scrollTo(0, 0);
