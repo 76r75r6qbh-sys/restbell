@@ -422,7 +422,7 @@ export function createApi(ctx) {
       if (from > to) throw new HttpError(400, 'from is after to');
       if (Date.parse(to) - Date.parse(from) > 400 * 86400000) throw new HttpError(400, 'range too long');
       const metric = url.searchParams.get('metric');
-      return { from, to, days: repo.metrics(from, to, metric || null), health: healthStatus(repo) };
+      return { from, to, days: repo.metrics(from, to, metric || null), food: repo.foodDays(from, to), health: healthStatus(repo) };
     }],
     // Body: { days: [{ date, metrics: { steps: 9120, ... } }] } or a single { date, metrics }.
     ['PUT', /^\/api\/metrics$/, (req, res, m, body) => {

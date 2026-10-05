@@ -6,3 +6,14 @@ data/
 *.db-wal
 *.db-shm
 .DS_Store
+ios/Config/Local.xcconfig
+ios/*.xcodeproj
+ios/build/
+ios/RestbellKit/.build/
+ios/RestbellKit/.swiftpm/
+xcuserdata/
+DerivedData/
+ios/Restbell/Info.plist
+ios/Restbell/Restbell.entitlements
+ios/RestbellWidgets/Info.plist
+ios/RestbellWidgets/RestbellWidgets.entitlements

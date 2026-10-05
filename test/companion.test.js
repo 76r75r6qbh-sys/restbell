@@ -161,6 +161,7 @@ test('metrics: batch upsert, validation, recovery and sync status', async () => 
   const got = (await api('GET', '/api/metrics?from=2026-10-09&to=2026-10-09')).json;
   assert.equal(got.days['2026-10-09'].steps, 4200);
   assert.equal(got.days['2026-10-09'].hrv_ms, 30);
+  assert.deepEqual(got.food, []);
   assert.equal((await api('PUT', '/api/metrics', { date: '2026-10-09', metrics: { mood: 1 } })).status, 400);
   assert.equal((await api('PUT', '/api/metrics', { date: 'bad', metrics: {} })).status, 400);
   const rec = (await api('GET', '/api/recovery?date=2026-10-09')).json;

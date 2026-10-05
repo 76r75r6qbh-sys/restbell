@@ -1,0 +1,78 @@
+name: iOS
+
+on:
+  push:
+    paths: ["ios/**", ".github/workflows/ios.yml"]
+  pull_request:
+    paths: ["ios/**", ".github/workflows/ios.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  kit-linux:
+    name: RestbellKit tests (Linux)
+    runs-on: ubuntu-latest
+    container: swift:6.1-noble
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift test
+        working-directory: ios/RestbellKit
+
+  app:
+    name: Build app, widgets and screenshots
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use the newest Xcode on the runner
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_*.app | grep -v -i beta | sort -V | tail -1)
+          echo "Using $XCODE"
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: RestbellKit tests (macOS)
+        working-directory: ios/RestbellKit
+        run: swift test
+      - name: Generate project
+        working-directory: ios
+        run: xcodegen generate
+      - name: Pick a simulator
+        id: sim
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          d = json.load(sys.stdin)["devices"]
+          runtimes = sorted((r for r in d if "iOS" in r), key=lambda r: [int(x) for x in r.split("iOS-")[-1].split("-")])
+          for r in reversed(runtimes):
+              phones = [x for x in d[r] if x["name"].startswith("iPhone") and "Pro" in x["name"] and "Max" not in x["name"]]
+              if phones:
+                  print(phones[-1]["udid"]); break
+          ')
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          xcrun simctl list devices | grep "$UDID"
+      - name: Build
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild -project Restbell.xcodeproj -scheme Restbell -configuration Debug \
+            -destination "id=${{ steps.sim.outputs.udid }}" -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO build 2>&1 | tee build.log | grep -E "error:|warning: .*(deprecated|unavailable)|\*\* BUILD" || true
+          grep -q "BUILD SUCCEEDED" build.log
+      - name: Show compile errors
+        if: failure()
+        working-directory: ios
+        run: grep -E "error:" build.log | sort -u | head -100 || true
+      - name: Screenshots
+        working-directory: ios
+        run: scripts/screenshots.sh "${{ steps.sim.outputs.udid }}" build/Build/Products/Debug-iphonesimulator/Restbell.app screenshots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots
+          path: ios/screenshots
+          if-no-files-found: ignore
