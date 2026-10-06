@@ -36,6 +36,9 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: RestbellKit tests (macOS)
+        id: kit
+        # Keep going so one CI run also reports the app's compile errors; the job still fails at the end.
+        continue-on-error: true
         working-directory: ios/RestbellKit
         run: swift test
       - name: Generate project
@@ -70,6 +73,9 @@ jobs:
       - name: Screenshots
         working-directory: ios
         run: scripts/screenshots.sh "${{ steps.sim.outputs.udid }}" build/Build/Products/Debug-iphonesimulator/Restbell.app screenshots
+      - name: Fail if the macOS package tests failed
+        if: steps.kit.outcome == 'failure'
+        run: exit 1
       - uses: actions/upload-artifact@v4
         if: always()
         with:

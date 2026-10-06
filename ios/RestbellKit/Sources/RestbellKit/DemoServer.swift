@@ -81,7 +81,7 @@ public actor DemoServer: Transport {
         case ("GET", "/api/history"): return try ok(history())
         case ("GET", "/api/checkins"): return try ok(Checkins(checkins: checkins()))
         case ("GET", "/api/settings"): return try ok(settings)
-        case ("GET", "/api/metrics"): return try ok(MetricsPage(from: query["from"] ?? today, to: query["to"] ?? today, days: metrics(), food: (0..<28).map { FoodTotalsDay(date: DayString.adding(-$0, to: today), kcal: 2350 + Double(($0 * 53) % 9) * 60, proteinG: 120 + Double(($0 * 29) % 7) * 6) }, health: .init(lastSync: ISOTime.string(Date().addingTimeInterval(-1800)), stale: false)))
+        case ("GET", "/api/metrics"): return try ok(metricsPage(from: query["from"] ?? today, to: query["to"] ?? today))
         case ("POST", "/api/sessions"):
             let s = Session(id: newId(), date: today, dayKey: body["dayKey"] as? String ?? "A", type: "lift", startedAt: ISOTime.string(Date()), sets: [])
             session = s
@@ -176,15 +176,40 @@ public actor DemoServer: Transport {
         [77.2, 77.0, 76.9, 76.8, 76.6, 76.4].enumerated().reversed().map { i, w in Checkin(id: i, date: DayString.adding(-7 * (5 - i), to: today), weightKg: w, notes: nil, bodyFatPct: nil, source: "manual", skipped: nil) }
     }
 
+    func metricsPage(from: String, to: String) -> MetricsPage {
+        var food: [FoodTotalsDay] = []
+        for i in 0..<28 {
+            let kcal: Double = 2350 + Double((i * 53) % 9) * 60
+            let protein: Double = 120 + Double((i * 29) % 7) * 6
+            food.append(FoodTotalsDay(date: DayString.adding(-i, to: today), kcal: kcal, proteinG: protein))
+        }
+        let health = Summary.Health(lastSync: ISOTime.string(Date().addingTimeInterval(-1800)), stale: false)
+        return MetricsPage(from: from, to: to, days: metrics(), food: food, health: health)
+    }
+
     /// 28 days of plausible Watch data.
     func metrics() -> [String: [String: Double]] {
         var out: [String: [String: Double]] = [:]
         for i in 0..<28 {
             let d = DayString.adding(-i, to: today)
-            let wobble = Double((i * 37) % 11) - 5
-            out[d] = ["steps": 8200 + wobble * 600, "active_kcal": 560 + wobble * 30, "basal_kcal": 1780, "exercise_min": 34 + wobble * 2, "stand_hours": 11,
-                      "move_goal_kcal": 600, "exercise_goal_min": 30, "stand_goal_hours": 12, "resting_hr": 52 + wobble / 3, "hrv_ms": 52 - wobble,
-                      "sleep_min": 440 + wobble * 8, "sleep_deep_min": 62 + wobble, "sleep_core_min": 250 + wobble * 4, "sleep_rem_min": 110 + wobble * 2, "vo2max": 46.5]
+            let w: Double = Double((i * 37) % 11) - 5
+            var m: [String: Double] = [:]
+            m["steps"] = 8200 + w * 600
+            m["active_kcal"] = 560 + w * 30
+            m["basal_kcal"] = 1780
+            m["exercise_min"] = 34 + w * 2
+            m["stand_hours"] = 11
+            m["move_goal_kcal"] = 600
+            m["exercise_goal_min"] = 30
+            m["stand_goal_hours"] = 12
+            m["resting_hr"] = 52 + w / 3
+            m["hrv_ms"] = 52 - w
+            m["sleep_min"] = 440 + w * 8
+            m["sleep_deep_min"] = 62 + w
+            m["sleep_core_min"] = 250 + w * 4
+            m["sleep_rem_min"] = 110 + w * 2
+            m["vo2max"] = 46.5
+            out[d] = m
         }
         return out
     }
