@@ -101,6 +101,8 @@ struct MacroLine: View {
                     .contentTransition(.numericText(value: value))
                 Text("/ \(Fmt.number(target)) \(unit)").font(compact ? .caption2 : .footnote).foregroundStyle(.secondary)
             }
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
             .numeric()
         }
         .accessibilityElement(children: .ignore)

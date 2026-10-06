@@ -60,7 +60,8 @@ final class WorkoutController {
         lastTime = today.lastSession?.sets ?? []
         finished = nil
         startActivity()
-        _ = await Notifications.shared.requestPermission()
+        // Ask for notifications (rest alerts) without blocking the session on the answer; demo mode never asks.
+        if !SharedStore.demo { Task { _ = await Notifications.shared.requestPermission() } }
     }
 
     // MARK: Logging
