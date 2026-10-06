@@ -25,6 +25,8 @@ jobs:
     name: Build app, widgets and screenshots
     runs-on: macos-latest
     timeout-minutes: 45
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - name: Use the newest Xcode on the runner
@@ -73,6 +75,21 @@ jobs:
       - name: Screenshots
         working-directory: ios
         run: scripts/screenshots.sh "${{ steps.sim.outputs.udid }}" build/Build/Products/Debug-iphonesimulator/Restbell.app screenshots
+      # Artifact storage isn't reachable from every review environment; a hidden ref (not a branch) is.
+      # Fetch with: git fetch origin refs/ci/screenshots && git archive FETCH_HEAD | tar -x -C shots
+      - name: Publish screenshots to refs/ci/screenshots
+        if: github.event_name == 'push'
+        working-directory: ios
+        run: |
+          mkdir -p "$RUNNER_TEMP/shots"
+          for f in screenshots/*.png; do
+            sips -s format jpeg -s formatOptions 70 -Z 1000 "$f" --out "$RUNNER_TEMP/shots/$(basename "${f%.png}").jpg" >/dev/null
+          done
+          cd "$RUNNER_TEMP/shots"
+          git init -q
+          git add .
+          git -c user.name=ci -c user.email=ci@localhost commit -qm "screenshots for ${{ github.sha }}"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" HEAD:refs/ci/screenshots
       - name: Fail if the macOS package tests failed
         if: steps.kit.outcome == 'failure'
         run: exit 1
