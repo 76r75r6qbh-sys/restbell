@@ -7,6 +7,7 @@ struct TodayView: View {
     @Environment(AppModel.self) private var model
     @AppStorage("setup.healthDismissed") private var healthDismissed = false
     @State private var notificationsAllowed = true
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         NavigationStack {
@@ -56,7 +57,8 @@ struct TodayView: View {
 
     func ringsCard(_ s: Summary) -> some View {
         Card(title: "Fuel and activity", symbol: "chart.pie.fill", tint: .secondary) {
-            HStack(alignment: .center, spacing: 16) {
+            let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 16)) : AnyLayout(HStackLayout(alignment: .center, spacing: 16))
+            layout {
                 MacroRings(food: s.food)
                 if s.activity.hasRings {
                     Spacer(minLength: 0)

@@ -69,8 +69,12 @@ struct MacroRings: View {
     var food: Summary.Food
     var compact = false
 
+    @Environment(\.dynamicTypeSize) private var typeSize
+
     var body: some View {
-        HStack(spacing: compact ? 10 : 16) {
+        // At accessibility text sizes the numbers go under the rings instead of being squeezed beside them.
+        let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12)) : AnyLayout(HStackLayout(spacing: compact ? 10 : 16))
+        layout {
             RingStack(rings: [
                 .init(id: "kcal", progress: food.kcalProgress, color: Palette.kcal),
                 .init(id: "protein", progress: food.proteinProgress, color: Palette.protein),
@@ -92,6 +96,7 @@ struct MacroLine: View {
     var unit: String
     var color: Color
     var compact = false
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -101,7 +106,7 @@ struct MacroLine: View {
                     .contentTransition(.numericText(value: value))
                 Text("/ \(Fmt.number(target)) \(unit)").font(compact ? .caption2 : .footnote).foregroundStyle(.secondary)
             }
-            .lineLimit(1)
+            .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
             .minimumScaleFactor(0.8)
             .numeric()
         }
