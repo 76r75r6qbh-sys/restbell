@@ -28,7 +28,7 @@ A native SwiftUI companion to the Restbell server. Runs on iOS 18 and later, and
 - A Mac with Xcode 16 or later. Xcode 26 adds the Liquid Glass look.
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen): `brew install xcodegen`.
 - An Apple ID signed in to Xcode. A **free account works** for your own phone, with these limits:
-  - The app stops opening after **7 days**. Connect the phone and press Run again, or refresh it with SideStore or AltStore.
+  - The app stops opening after **7 days**. Connect the phone and press Run again, or install it with AltStore Classic, which refreshes it for you (see below).
   - There is **no push (APNs)**. Coach messages and reminders arrive through Home Assistant or ntfy instead (see below).
 - Your Restbell server updated to this version, reachable from the phone. HTTPS through the Cloudflare Tunnel works best; plain http on the LAN or Tailscale also works.
 
@@ -56,6 +56,31 @@ Xcode shows a signing error if your account can't use a capability. If it does:
 | `healthkit.background-delivery` | Delete that line in `project.yml`, run `xcodegen generate` | Instant import after a Watch workout. The Shortcuts automation below covers it. |
 | `application-groups` | Delete the app group lines in `project.yml` | Widgets can't share the app's cache, so they fetch on their own |
 | `keychain-access-groups` | Delete those lines | Widgets and Siri can only work if your server has no password |
+
+## Install with AltStore Classic (no Xcode needed)
+
+CI builds a ready-to-install `Restbell.ipa` on every push. It's attached to the **iOS latest** pre-release under the repository's Releases. [AltStore Classic](https://altstore.io) installs it with your free Apple ID and refreshes the 7-day signature over Wi-Fi in the background, so you don't have to press Run in Xcode every week.
+
+1. Install **AltServer** on your Mac, and install AltStore on the iPhone from it, following AltStore's own guide.
+2. Download `Restbell.ipa` from Releases → **iOS latest**. Either AirDrop it to the phone and open it with AltStore, or in AltStore go to **My Apps → +** and pick the file.
+3. When AltStore asks about app extensions, choose **Keep App Extensions**. They are the widgets, the Live Activity and the Control Center button.
+4. Sign in as described below, and connect Apple Health.
+
+AltStore refreshes the app before it expires while the phone and the Mac running AltServer are on the same Wi-Fi. Open AltStore now and then to check.
+
+**Limits of a free Apple ID:**
+- **3 active apps:** AltStore itself counts as one.
+- **10 App IDs per week:** Restbell plus its widget extension uses 2. Reinstalling or installing other apps uses more.
+
+**What AltStore changes:**
+- **Your team ID is added to the bundle ID and the app group name.** The app reads the renamed group from AltStore (`ALTAppGroups`), so widgets keep working.
+- **Keychain sharing doesn't survive the re-signing.** The app then keeps your server token in its own Keychain entry, plus a file in its App Group that the widgets and Siri read. Only apps signed by your team can read it.
+- **AltStore may leave out HealthKit background delivery.** Workouts then sync when you open the app, during background refresh, and from the Shortcuts automation (see Apple Health sync below), which is the most reliable trigger anyway.
+- **HealthKit itself might be refused for free accounts.** If so, the app still works; only the Health import is off.
+
+**Settings:**
+- To use your own bundle prefix in the CI build, set a repository variable `BUNDLE_ID_PREFIX` (Settings → Secrets and variables → Actions → Variables).
+- To build the `.ipa` locally on a Mac: in `ios/`, run `xcodegen generate`, then `scripts/make-ipa.sh`.
 
 ## Sign in
 
@@ -118,6 +143,7 @@ The old "post workout" Shortcut in the main README isn't needed any more. Remove
 - `Restbell/`: the app, with its screens, guided session, `HealthSync`, notifications, background tasks, quick actions and Shortcuts.
 - `RestbellWidgets/`: widgets, the Live Activity, and the Control Center control.
 - `scripts/screenshots.sh`: simulator screenshots in demo mode. CI runs it and uploads the images.
+- `scripts/make-ipa.sh`: builds `Restbell.ipa` for AltStore. CI runs it and publishes the result to the **iOS latest** pre-release.
 
 ## CI
 
@@ -126,5 +152,6 @@ The old "post workout" Shortcut in the main README isn't needed any more. Remove
 - the RestbellKit tests on Linux and macOS
 - a simulator build of the app and widgets without signing
 - screenshots of the main screens in light, dark and large accessibility text sizes, uploaded as the `screenshots` artifact
+- `Restbell.ipa` for AltStore, published to the **iOS latest** pre-release (not on pull requests)
 
 On a private repository, macOS runner minutes count ten times against the Actions allowance.

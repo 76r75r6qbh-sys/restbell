@@ -3,7 +3,18 @@ import Foundation
 /// Settings shared between the app and the widget extension through the App Group.
 /// Identifiers come from Info.plist (set from the xcconfig), so each developer can use their own bundle prefix.
 public enum AppGroup {
-    public static var identifier: String? { Bundle.main.object(forInfoDictionaryKey: "RestbellAppGroup") as? String }
+    public static var identifier: String? { identifier(in: Bundle.main.infoDictionary ?? [:]) }
+
+    /// AltStore re-signs the app with the installer's team and renames its app groups, listing the new names
+    /// in `ALTAppGroups`; those win over the group baked in at build time (`RestbellAppGroup`).
+    public static func identifier(in info: [String: Any]) -> String? {
+        let built = (info["RestbellAppGroup"] as? String).flatMap { $0.isEmpty || $0.hasPrefix("$(") ? nil : $0 }
+        if let groups = info["ALTAppGroups"] as? [String], !groups.isEmpty {
+            if let built, let renamed = groups.first(where: { $0.hasPrefix(built) }) { return renamed }
+            return groups.first { $0.lowercased().contains("restbell") } ?? groups[0]
+        }
+        return built
+    }
 
     public static var defaults: UserDefaults {
         identifier.flatMap { UserDefaults(suiteName: $0) } ?? .standard

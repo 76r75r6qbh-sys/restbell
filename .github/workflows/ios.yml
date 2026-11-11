@@ -90,6 +90,23 @@ jobs:
           git add .
           git -c user.name=ci -c user.email=ci@localhost commit -qm "screenshots for ${{ github.sha }}"
           git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" HEAD:refs/ci/screenshots
+      - name: Build Restbell.ipa for AltStore
+        if: github.event_name != 'pull_request'
+        working-directory: ios
+        env:
+          BUNDLE_ID_PREFIX: ${{ vars.BUNDLE_ID_PREFIX || 'com.example' }}
+        run: scripts/make-ipa.sh build/ipa
+      # One pre-release, "iOS latest", always holds the newest build: open the .ipa with AltStore.
+      - name: Publish to the "iOS latest" pre-release
+        if: github.event_name != 'pull_request'
+        working-directory: ios
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete ios-latest --cleanup-tag --yes --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
+          gh release create ios-latest build/ipa/Restbell.ipa --repo "$GITHUB_REPOSITORY" --prerelease \
+            --target "$GITHUB_SHA" --title "iOS latest" \
+            --notes "Built from ${GITHUB_REF_NAME} at ${GITHUB_SHA::7}. Install with AltStore Classic: see ios/README.md (Install with AltStore Classic). Keep the app extensions when AltStore asks."
       - name: Fail if the macOS package tests failed
         if: steps.kit.outcome == 'failure'
         run: exit 1

@@ -224,3 +224,23 @@ final class SetQueueTests: XCTestCase {
         XCTAssertEqual(left, 0)
     }
 }
+
+final class AltStoreTests: XCTestCase {
+    func testAppGroupPrefersAltStoreRename() {
+        XCTAssertEqual(AppGroup.identifier(in: ["RestbellAppGroup": "group.com.me.restbell"]), "group.com.me.restbell")
+        XCTAssertEqual(AppGroup.identifier(in: ["RestbellAppGroup": "group.com.me.restbell", "ALTAppGroups": ["group.other", "group.com.me.restbell.ABCDE12345"]]),
+                       "group.com.me.restbell.ABCDE12345")
+        XCTAssertEqual(AppGroup.identifier(in: ["ALTAppGroups": ["group.x", "group.y.restbell.TEAM"]]), "group.y.restbell.TEAM")
+        XCTAssertNil(AppGroup.identifier(in: ["RestbellAppGroup": "$(APP_GROUP)"]))
+        XCTAssertNil(AppGroup.identifier(in: [:]))
+    }
+
+    func testTokenFileRoundTrip() {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        XCTAssertNil(TokenFile.read(in: dir))
+        TokenFile.write("abc123", in: dir)
+        XCTAssertEqual(TokenFile.read(in: dir), "abc123")
+        TokenFile.write(nil, in: dir)
+        XCTAssertNil(TokenFile.read(in: dir))
+    }
+}
